@@ -1,9 +1,0 @@
-streamlit
-streamlit-autorefresh
-yfinance
-pandas
-pandas-ta==0.3.13b0
-plotly
-numpy
-openpyxl
-setuptools<65.0.0 

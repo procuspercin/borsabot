@@ -22,8 +22,8 @@ st.title("Borsa Teknik Analiz Uygulaması")
 # Sidebar - Sembol ve Zaman Aralığı Seçimi
 st.sidebar.header("Ayarlar")
 
-# Otomatik yenileme (her 10 saniyede bir)
-st_autorefresh(interval=10 * 1000, key="datarefresh")
+# Otomatik yenileme (her 60 saniyede bir)
+st_autorefresh(interval=60 * 1000, key="datarefresh")
 
 # BIST 100 hisseleri
 BIST100_SYMBOLS = [

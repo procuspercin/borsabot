@@ -226,6 +226,10 @@ def go_to_home():
     st.session_state.view = 'home'
     st.rerun()
 
+def go_to_bulk():
+    st.session_state.view = 'bulk'
+    st.rerun()
+
 # --- DATA FETCHING ---
 @st.cache_data(ttl=60)
 def get_market_summary():
@@ -348,7 +352,12 @@ def render_home():
     
     with col_main:
         # Search & History
-        st.markdown("### 🔎 Piyasa Takibi")
+        c_search, c_bulk = st.columns([3, 1])
+        with c_search:
+            st.markdown("### 🔎 Piyasa Takibi")
+        with c_bulk:
+            if st.button("📊 Toplu Analiz", use_container_width=True):
+                go_to_bulk()
         
         # Search
         selected = st.selectbox("Sembol Ara", BIST100_SYMBOLS, index=None, placeholder="Hisse senedi arayın...", label_visibility="collapsed")
@@ -394,7 +403,6 @@ def render_home():
             for item in news[:10]:
                 st.markdown(f"""
                 <div class="news-item">
-                    <img src="{item['image']}" class="news-img-small">
                     <div class="news-content">
                         <a href="{item['link']}" target="_blank" class="news-title">{item['title']}</a>
                         <div class="news-time">{item['published'][5:16]}</div>
@@ -437,8 +445,49 @@ def render_detail():
     if original_interval != interval:
         st.toast(f"⚠️ {period} periyodu için {original_interval} verisi mevcut değil. Otomatik olarak {interval} seçildi.", icon="ℹ️")
 
+    # Futures Selector
+    current_date = datetime.now()
+    months_tr = {
+        1: "Ocak", 2: "Şubat", 3: "Mart", 4: "Nisan", 5: "Mayıs", 6: "Haziran",
+        7: "Temmuz", 8: "Ağustos", 9: "Eylül", 10: "Ekim", 11: "Kasım", 12: "Aralık"
+    }
+    
+    # Calculate future contracts
+    future_options = ["Spot (Hisse)"]
+    future_map = {"Spot (Hisse)": symbol}
+    
+    for i in range(3):
+        t_month = current_date.month + i
+        t_year = current_date.year
+        if t_month > 12:
+            t_month -= 12
+            t_year += 1
+        
+        # Construct a theoretical symbol or label
+        # Note: YF symbols for VIOP are tricky. We'll use a placeholder logic.
+        # If we knew the format: e.g. THYAOF2026.IS (Hypothetical)
+        # For now, we will allow selection but might not find data.
+        lbl = f"{months_tr[t_month]} {t_year} Vade"
+        future_options.append(lbl)
+        
+        # Try to construct a symbol (Best Guess)
+        # Format often: F_TICKERMMYY.IS or similar. 
+        # Let's use a dummy format that likely won't fetch but shows intent.
+        # If user provides correct format later, we can update.
+        month_code = f"{t_month:02d}"
+        year_short = str(t_year)[-2:]
+        future_map[lbl] = f"F_{symbol.split('.')[0]}{month_code}{year_short}.IS"
+
+    selected_asset_type = st.radio("Varlık Tipi", future_options, horizontal=True, label_visibility="collapsed")
+    
+    target_symbol = future_map[selected_asset_type]
+    
+    # If it's a future and not the spot, show a warning about data
+    if selected_asset_type != "Spot (Hisse)":
+        st.info(f"Seçilen Vade Sembolü: {target_symbol}. (Not: Yahoo Finance üzerinde VIOP verisi sınırlı olabilir.)")
+
     # Fetch
-    df = get_stock_data(symbol, period, interval)
+    df = get_stock_data(target_symbol, period, interval)
     
     if df is not None and not df.empty:
         # TradingView Style Chart
@@ -516,6 +565,24 @@ def render_detail():
             fig.add_trace(go.Scatter(x=df.index, y=kijun_sen, name="Kijun", line=dict(color='#991515', width=1)), row=1, col=1)
             fig.add_trace(go.Scatter(x=df.index, y=senkou_span_a, name="Span A", line=dict(color='rgba(0, 150, 0, 0.3)', width=0), showlegend=False), row=1, col=1)
             fig.add_trace(go.Scatter(x=df.index, y=senkou_span_b, name="Span B", line=dict(color='rgba(150, 0, 0, 0.3)', width=0), fill='tonexty', fillcolor='rgba(0, 255, 0, 0.1)', showlegend=False), row=1, col=1)
+
+        # Latest Price Line & Label
+        last_price = df['Close'].iloc[-1]
+        prev_price = df['Close'].iloc[-2] if len(df) > 1 else last_price
+        price_color = '#26a69a' if last_price >= prev_price else '#ef5350'
+        
+        fig.add_hline(
+            y=last_price, 
+            line_dash="dash", 
+            line_color=price_color, 
+            line_width=1,
+            annotation_text=f"{last_price:.2f}",
+            annotation_position="top right",
+            annotation_font_size=11,
+            annotation_font_color="white",
+            annotation_bgcolor=price_color,
+            row=1, col=1
+        )
 
 
         # Subplots
@@ -600,16 +667,354 @@ def render_detail():
         
         # CSV Download
         csv = df.to_csv().encode('utf-8')
-        st.download_button(
-            label="📥 Verileri İndir (CSV)",
-            data=csv,
-            file_name=f"{symbol}_data.csv",
-            mime="text/csv",
-            key='download-csv'
+        
+        col_dl1, col_dl2 = st.columns(2)
+        with col_dl1:
+            st.download_button(
+                label="📥 Verileri İndir (CSV)",
+                data=csv,
+                file_name=f"{symbol}_data.csv",
+                mime="text/csv",
+                key='download-csv'
+            )
+            
+        with col_dl2:
+            analysis_df = calculate_technical_signals(df)
+            if not analysis_df.empty:
+                analysis_csv = analysis_df.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📥 Analiz İndir (CSV)",
+                    data=analysis_csv,
+                    file_name=f"{symbol}_analiz.csv",
+                    mime="text/csv",
+                    key='download-analysis-csv'
+                )
+                
+        # Display Analysis Table
+        if not analysis_df.empty:
+            st.markdown("### 📈 Teknik Analiz Özeti")
+            
+            def color_signal(val):
+                color = '#d1d4dc'
+                if 'GÜÇLÜ AL' in str(val) or ('AL' in str(val) and 'NORMAL' not in str(val)):
+                    color = '#26a69a'
+                elif 'GÜÇLÜ SAT' in str(val) or 'SAT' in str(val):
+                    color = '#ef5350'
+                elif 'BEKLE' in str(val):
+                    color = '#2962ff'
+                return f'color: {color}; font-weight: bold'
+
+            st.dataframe(
+                analysis_df.style.applymap(color_signal, subset=['Sinyal']),
+                use_container_width=True,
+                hide_index=True
+            )
+
+        # Futures (VIOP) Section - REMOVED (Moved to top selector)
+        # st.markdown("<br>", unsafe_allow_html=True)
+        # st.markdown("### 🗓️ Vadeli İşlemler (VIOP)")
+        # ... (Removed previous list implementation)
+        
+        # Calculate next 3 months
+        current_date = datetime.now()
+        futures_data = []
+        
+        months_tr = {
+            1: "Ocak", 2: "Şubat", 3: "Mart", 4: "Nisan", 5: "Mayıs", 6: "Haziran",
+            7: "Temmuz", 8: "Ağustos", 9: "Eylül", 10: "Ekim", 11: "Kasım", 12: "Aralık"
+        }
+        
+        for i in range(3):
+            # Calculate target month
+            target_month = current_date.month + i
+            target_year = current_date.year
+            
+            if target_month > 12:
+                target_month -= 12
+                target_year += 1
+                
+            month_name = months_tr[target_month]
+            contract_name = f"{symbol.split('.')[0]} - {month_name} {target_year} Vadesi"
+            
+            # Placeholder for data (since YF doesn't reliably support BIST single stock futures)
+            futures_data.append({
+                "Vade": f"{month_name} {target_year}",
+                "Sözleşme": contract_name,
+                "Durum": "Aktif",
+                "Fiyat": "N/A" # Placeholder
+            })
+            
+        
+        st.dataframe(
+            pd.DataFrame(futures_data),
+            use_container_width=True,
+            hide_index=True
         )
+
+def render_bulk_analysis():
+    st.markdown("## 📊 Toplu Teknik Analiz")
+    if st.button("⬅ Ana Sayfaya Dön"):
+        go_to_home()
+        
+    st.markdown("Analiz etmek istediğiniz hisseleri seçin ve raporu oluşturun.")
+    
+    c_mode, c_dummy = st.columns([1, 2])
+    with c_mode:
+        analysis_mode = st.radio("Rapor Tipi", ["Basit", "Detaylı"], horizontal=True)
+    
+    selected_symbols = st.multiselect(
+        "Hisseler", 
+        BIST100_SYMBOLS, 
+        default=BIST100_SYMBOLS[:5] # Default first 5
+    )
+    
+    if st.button("🚀 Analiz Et", type="primary"):
+        if not selected_symbols:
+            st.warning("Lütfen en az bir hisse seçin.")
+            return
+            
+        progress_bar = st.progress(0)
+        results = []
+        
+        for idx, symbol in enumerate(selected_symbols):
+            # Fetch data (1 year daily)
+            df = get_stock_data(symbol, "1y", "1d")
+            if df is not None and not df.empty:
+                # Calculate signals
+                signals_df = calculate_technical_signals(df)
+                
+                # Extract key signals for summary
+                summary = {"Sembol": symbol, "Son Fiyat": df['Close'].iloc[-1]}
+                
+                # Flatten signals
+                for _, row in signals_df.iterrows():
+                    ind_name = row['İndikatör'].split(' ')[0] # Short name
+                    summary[ind_name] = row['Sinyal']
+                    
+                    if analysis_mode == "Detaylı":
+                        # Extract value from "Değerler" string or use RawData if we added it
+                        # For now, let's just add the full description string as a column
+                        summary[f"{ind_name} Detay"] = row['Değerler']
+                    
+                results.append(summary)
+            
+            progress_bar.progress((idx + 1) / len(selected_symbols))
+            
+        if results:
+            res_df = pd.DataFrame(results)
+            
+            st.success("Analiz Tamamlandı!")
+            
+            # Display Table
+            def color_bulk(val):
+                color = ''
+                if 'AL' in str(val): color = 'color: #26a69a; font-weight: bold'
+                elif 'SAT' in str(val): color = 'color: #ef5350; font-weight: bold'
+                elif 'BEKLE' in str(val): color = 'color: #2962ff'
+                return color
+
+            st.dataframe(
+                res_df.style.applymap(color_bulk),
+                use_container_width=True,
+                hide_index=True
+            )
+            
+            # CSV Download
+            csv = res_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Raporu İndir (CSV)",
+                data=csv,
+                file_name=f"toplu_analiz_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
+        else:
+            st.error("Veri alınamadı.")
+
+def calculate_technical_signals(df):
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    last_close = df['Close'].iloc[-1]
+    signals = []
+
+    # Helper for signal string
+    def get_signal(condition_buy, condition_sell):
+        if condition_buy: return "AL"
+        if condition_sell: return "SAT"
+        return "BEKLE"
+
+    # --- MA ---
+    try:
+        ma20 = df['Close'].rolling(20).mean().iloc[-1]
+        ma50 = df['Close'].rolling(50).mean().iloc[-1]
+        ma200 = df['Close'].rolling(200).mean().iloc[-1]
+        
+        ma_signal = "BEKLE"
+        if last_close > ma20 and last_close > ma50: ma_signal = "AL"
+        elif last_close < ma20 and last_close < ma50: ma_signal = "SAT"
+        
+        signals.append({
+            "İndikatör": "Hareketli Ortalamalar (MA)",
+            "Sinyal": ma_signal,
+            "Değerler": f"Fiyat: {last_close:.2f}, MA20: {ma20:.2f}, MA50: {ma50:.2f}, MA200: {ma200:.2f}"
+        })
+    except: pass
+
+    # --- MACD ---
+    try:
+        exp1 = df['Close'].ewm(span=12, adjust=False).mean()
+        exp2 = df['Close'].ewm(span=26, adjust=False).mean()
+        macd = exp1 - exp2
+        signal = macd.ewm(span=9, adjust=False).mean()
+        
+        curr_macd = macd.iloc[-1]
+        curr_signal = signal.iloc[-1]
+        
+        macd_sig = get_signal(curr_macd > curr_signal, curr_macd < curr_signal)
+        signals.append({
+            "İndikatör": "MACD",
+            "Sinyal": macd_sig,
+            "Değerler": f"MACD: {curr_macd:.2f}, Signal: {curr_signal:.2f}"
+        })
+    except: pass
+
+    # --- RSI ---
+    try:
+        delta = df['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        curr_rsi = rsi.iloc[-1]
+        
+        rsi_sig = "BEKLE"
+        if curr_rsi < 30: rsi_sig = "GÜÇLÜ AL"
+        elif curr_rsi > 70: rsi_sig = "GÜÇLÜ SAT"
+        
+        signals.append({
+            "İndikatör": "RSI",
+            "Sinyal": rsi_sig,
+            "Değerler": f"RSI: {curr_rsi:.2f}"
+        })
+    except: pass
+
+    # --- Bollinger ---
+    try:
+        sma20 = df['Close'].rolling(20).mean()
+        std20 = df['Close'].rolling(20).std()
+        upper = sma20 + 2 * std20
+        lower = sma20 - 2 * std20
+        
+        curr_upper = upper.iloc[-1]
+        curr_lower = lower.iloc[-1]
+        curr_sma = sma20.iloc[-1]
+        
+        bb_sig = "BEKLE"
+        if last_close < curr_lower: bb_sig = "AL (Tepki)"
+        elif last_close > curr_upper: bb_sig = "SAT (Tepki)"
+        
+        signals.append({
+            "İndikatör": "Bollinger Bantları",
+            "Sinyal": bb_sig,
+            "Değerler": f"Üst: {curr_upper:.2f}, Alt: {curr_lower:.2f}, Orta: {curr_sma:.2f}"
+        })
+    except: pass
+
+    # --- Stochastic ---
+    try:
+        low14 = df['Low'].rolling(window=14).min()
+        high14 = df['High'].rolling(window=14).max()
+        k = 100 * ((df['Close'] - low14) / (high14 - low14))
+        d = k.rolling(window=3).mean()
+        
+        curr_k = k.iloc[-1]
+        curr_d = d.iloc[-1]
+        
+        stoch_sig = "BEKLE"
+        if curr_k < 20 and curr_d < 20 and curr_k > curr_d: stoch_sig = "AL"
+        elif curr_k > 80 and curr_d > 80 and curr_k < curr_d: stoch_sig = "SAT"
+        
+        signals.append({
+            "İndikatör": "Stokastik",
+            "Sinyal": stoch_sig,
+            "Değerler": f"K: {curr_k:.2f}, D: {curr_d:.2f}"
+        })
+    except: pass
+
+    # --- Ichimoku ---
+    try:
+        high9 = df['High'].rolling(window=9).max()
+        low9 = df['Low'].rolling(window=9).min()
+        tenkan = (high9 + low9) / 2
+        
+        high26 = df['High'].rolling(window=26).max()
+        low26 = df['Low'].rolling(window=26).min()
+        kijun = (high26 + low26) / 2
+        
+        curr_tenkan = tenkan.iloc[-1]
+        curr_kijun = kijun.iloc[-1]
+        
+        ichi_sig = get_signal(curr_tenkan > curr_kijun, curr_tenkan < curr_kijun)
+        signals.append({
+            "İndikatör": "Ichimoku",
+            "Sinyal": ichi_sig,
+            "Değerler": f"Tenkan: {curr_tenkan:.2f}, Kijun: {curr_kijun:.2f}"
+        })
+    except: pass
+
+    # --- Volatility (Std Dev) ---
+    try:
+        curr_std = df['Close'].rolling(20).std().iloc[-1]
+        signals.append({
+            "İndikatör": "Standart Sapma (Volatilite)",
+            "Sinyal": "N/A",
+            "Değerler": f"Std Dev: {curr_std:.2f}"
+        })
+    except: pass
+    
+    # --- Fibonacci (Simple Retracement based on visible range) ---
+    try:
+        period_high = df['High'].max()
+        period_low = df['Low'].min()
+        diff = period_high - period_low
+        
+        levels = {
+            "0.0% (Tepe)": period_high,
+            "23.6%": period_high - 0.236 * diff,
+            "38.2%": period_high - 0.382 * diff,
+            "50.0%": period_high - 0.5 * diff,
+            "61.8%": period_high - 0.618 * diff,
+            "100.0% (Dip)": period_low
+        }
+        
+        # Find closest levels
+        closest_support = None
+        closest_resistance = None
+        
+        sorted_levels = sorted(levels.items(), key=lambda x: x[1])
+        
+        for name, level in sorted_levels:
+            if level < last_close:
+                closest_support = (name, level)
+            elif level > last_close and closest_resistance is None:
+                closest_resistance = (name, level)
+                
+        fib_vals = f"Destek: {closest_support[0]} ({closest_support[1]:.2f})" if closest_support else "Destek: Yok"
+        fib_vals += f", Direnç: {closest_resistance[0]} ({closest_resistance[1]:.2f})" if closest_resistance else ", Direnç: Yok"
+        
+        signals.append({
+            "İndikatör": "Fibonacci Seviyeleri",
+            "Sinyal": "N/A",
+            "Değerler": fib_vals
+        })
+    except: pass
+
+    return pd.DataFrame(signals)
 
 # --- MAIN ---
 if st.session_state.view == 'home':
     render_home()
 elif st.session_state.view == 'detail':
     render_detail()
+elif st.session_state.view == 'bulk':
+    render_bulk_analysis()

@@ -1,30 +1,192 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import numpy as np
-import io
 from streamlit_autorefresh import st_autorefresh
+import requests
+from bs4 import BeautifulSoup
+import ssl
 
-# Sayfa yapılandırması
+# SSL Fix
+if hasattr(ssl, '_create_unverified_context'):
+    ssl._create_default_https_context = ssl._create_unverified_context
+
+# --- CONFIGURATION ---
 st.set_page_config(
-    page_title="Borsa Teknik Analiz",
-    page_icon="📈",
-    layout="wide"
+    page_title="BorsaBot Terminal",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
 
-# Başlık
-st.title("Borsa Teknik Analiz Uygulaması")
+# --- TRADINGVIEW THEME CSS ---
+st.markdown("""
+<style>
+    /* Global Reset & Font */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif;
+    }
+    
+    /* Main Background - TradingView Black */
+    .stApp {
+        background-color: #131722;
+        color: #d1d4dc;
+    }
+    
+    /* Sidebar */
+    [data-testid="stSidebar"] {
+        background-color: #1e222d;
+        border-right: 1px solid #2a2e39;
+    }
+    
+    /* Top Market Bar */
+    .market-bar {
+        display: flex;
+        align-items: center;
+        background-color: #1e222d;
+        padding: 10px 20px;
+        border-bottom: 1px solid #2a2e39;
+        margin-top: -50px; /* Pull up to hide default header space if possible */
+        margin-left: -5rem;
+        margin-right: -5rem;
+        padding-left: 5rem;
+        overflow-x: auto;
+        white-space: nowrap;
+        gap: 30px;
+    }
+    .market-item {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    .market-symbol {
+        font-size: 0.75rem;
+        color: #787b86;
+        font-weight: 600;
+    }
+    .market-price-group {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+    }
+    .market-price {
+        font-size: 0.95rem;
+        color: #d1d4dc;
+        font-weight: 600;
+    }
+    .market-change-pos { color: #26a69a; font-size: 0.85rem; }
+    .market-change-neg { color: #ef5350; font-size: 0.85rem; }
+    
+    /* Cards & Containers */
+    .tv-card {
+        background-color: #1e222d;
+        border: 1px solid #2a2e39;
+        border-radius: 4px;
+        padding: 16px;
+        margin-bottom: 16px;
+    }
+    
+    /* Typography */
+    h1, h2, h3 {
+        color: #d1d4dc !important;
+        font-weight: 600;
+    }
+    
+    /* Inputs */
+    .stTextInput input, .stSelectbox div[data-baseweb="select"] > div {
+        background-color: #2a2e39 !important;
+        color: #d1d4dc !important;
+        border: 1px solid #363a45 !important;
+        border-radius: 4px;
+    }
+    
+    /* Buttons */
+    .stButton button {
+        background-color: #2962ff;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        font-weight: 500;
+        padding: 0.5rem 1rem;
+        transition: background-color 0.2s;
+    }
+    .stButton button:hover {
+        background-color: #1e53e5;
+    }
+    
+    /* News Feed */
+    .news-item {
+        padding: 12px 0;
+        border-bottom: 1px solid #2a2e39;
+        display: flex;
+        gap: 15px;
+        align-items: start;
+    }
+    .news-item:last-child { border-bottom: none; }
+    .news-img-small {
+        width: 80px;
+        height: 60px;
+        object-fit: cover;
+        border-radius: 4px;
+    }
+    .news-content { flex: 1; }
+    .news-title {
+        font-size: 0.95rem;
+        color: #d1d4dc;
+        text-decoration: none;
+        font-weight: 500;
+        display: block;
+        margin-bottom: 4px;
+    }
+    .news-title:hover { color: #2962ff; }
+    .news-time {
+        font-size: 0.75rem;
+        color: #787b86;
+    }
+    
+    /* Table Overrides */
+    [data-testid="stDataFrame"] {
+        background-color: #1e222d;
+        border: 1px solid #2a2e39;
+    }
+    [data-testid="stDataFrame"] th {
+        background-color: #2a2e39 !important;
+        color: #d1d4dc !important;
+    }
+    [data-testid="stDataFrame"] td {
+        color: #d1d4dc !important;
+        border-bottom: 1px solid #2a2e39 !important;
+    }
+    
+    /* Last Viewed Chips */
+    .chip-container {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 20px;
+    }
+    .chip {
+        background-color: #2a2e39;
+        color: #d1d4dc;
+        padding: 4px 12px;
+        border-radius: 100px;
+        font-size: 0.85rem;
+        cursor: pointer;
+        border: 1px solid transparent;
+        transition: all 0.2s;
+    }
+    .chip:hover {
+        border-color: #2962ff;
+        color: #2962ff;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-# Sidebar - Sembol ve Zaman Aralığı Seçimi
-st.sidebar.header("Ayarlar")
-
-# Otomatik yenileme (her 60 saniyede bir)
-st_autorefresh(interval=60 * 1000, key="datarefresh")
-
-# BIST 100 hisseleri
+# --- FULL STOCK LIST ---
 BIST100_SYMBOLS = [
     "XU030.IS", "XU100.IS",  # Endeksler
     "AKBNK.IS", "ARCLK.IS", "ASELS.IS", "BIMAS.IS", "EKGYO.IS", "EREGL.IS", "FROTO.IS", "GARAN.IS",
@@ -42,462 +204,412 @@ BIST100_SYMBOLS = [
     "TTRAK.IS", "TUPRS.IS", "ULKER.IS", "VAKBN.IS", "VESTL.IS", "YATAS.IS", "YKBNK.IS", "YUNSA.IS"
 ]
 
-# Sembol seçimi
-selected_symbol = st.sidebar.selectbox("Sembol Seçin", BIST100_SYMBOLS)
+# --- STATE MANAGEMENT ---
+if 'view' not in st.session_state:
+    st.session_state.view = 'home'
+if 'selected_symbol' not in st.session_state:
+    st.session_state.selected_symbol = 'THYAO.IS'
+if 'last_viewed' not in st.session_state:
+    st.session_state.last_viewed = []
 
-# Zaman aralığı seçimi
-timeframe = st.sidebar.selectbox("Zaman Dilimi", ["1d", "4h", "1h", "15m"], index=3)
+def go_to_detail(symbol):
+    st.session_state.selected_symbol = symbol
+    if symbol in st.session_state.last_viewed:
+        st.session_state.last_viewed.remove(symbol)
+    st.session_state.last_viewed.insert(0, symbol)
+    if len(st.session_state.last_viewed) > 12:
+        st.session_state.last_viewed.pop()
+    st.session_state.view = 'detail'
+    st.rerun()
 
-# Periyot seçimi
-period = st.sidebar.selectbox("Periyot", ["1mo", "3mo", "6mo", "1y", "2y", "5y", "max"])
+def go_to_home():
+    st.session_state.view = 'home'
+    st.rerun()
 
-# Sidebar - Tarih seçici ekle
-st.sidebar.header("Tarih Seçimi")
-today = datetime.today().date()
-min_date = today - timedelta(days=365*5)
-selected_date = st.sidebar.date_input("Tarih Seçin", value=today, min_value=min_date, max_value=today)
-
-# Fiyat grafiği gösterme seçeneği
-show_price_chart = st.sidebar.checkbox("Fiyat Grafiğini Göster", value=True)
-
-# İndikatör seçimi
-st.sidebar.header("İndikatörler")
-indicators = {
-    "MA": "Hareketli Ortalama",
-    "MACD": "MACD",
-    "BB": "Bollinger Bantları",
-    "RSI": "RSI",
-    "STOCH": "Stokastik Osilatör",
-    "FIB": "Fibonacci Düzeltmesi",
-    "ICHIMOKU": "Ichimoku Bulutu",
-    "STD": "Standard Sapma"
-}
-
-selected_indicators = []
-for key, name in indicators.items():
-    if st.sidebar.checkbox(name, key=key):
-        selected_indicators.append(key)
-
-# Sidebar - Günlük fiyat tablosu gösterme seçeneği
-show_price_table = st.sidebar.checkbox("Günlük Fiyat Tablosunu Göster", value=True)
-
-# Veri çekme fonksiyonu
-def get_data(symbol, period, interval):
+# --- DATA FETCHING ---
+@st.cache_data(ttl=60)
+def get_market_summary():
+    tickers = ["USDTRY=X", "EURTRY=X", "EURUSD=X", "GC=F", "SI=F", "XU100.IS"]
     try:
-        # Bugünün tarihini end olarak kullan
-        today_str = datetime.today().strftime('%Y-%m-%d')
-        data = yf.download(symbol, period=period, interval=interval, end=today_str)
-        if data.empty:
-            st.error(f"{symbol} için veri bulunamadı!")
-            return None
-        return data
-    except Exception as e:
-        st.error(f"Veri çekilirken hata oluştu: {str(e)}")
+        df = yf.download(tickers, period="2d", group_by='ticker', progress=False)
+        summary = {}
+        names = {
+            "USDTRY=X": "Dolar", 
+            "EURTRY=X": "Euro", 
+            "EURUSD=X": "Parite", 
+            "GC=F": "Altın", 
+            "SI=F": "Gümüş", 
+            "XU100.IS": "BIST 100"
+        }
+        
+        for ticker in tickers:
+            try:
+                hist = df[ticker]
+                if len(hist) >= 1:
+                    close = hist['Close'].iloc[-1]
+                    # Check for NaN
+                    if pd.isna(close):
+                        continue
+                        
+                    change = 0.0
+                    if len(hist) >= 2:
+                        prev = hist['Close'].iloc[-2]
+                        if not pd.isna(prev) and prev != 0:
+                            change = ((close - prev) / prev * 100)
+                            
+                    summary[names[ticker]] = {"price": close, "change": change}
+            except:
+                continue
+        return summary
+    except:
+        return {}
+
+@st.cache_data(ttl=300)
+def get_market_movers():
+    tickers = [s for s in BIST100_SYMBOLS if "XU" not in s][:30]
+    data = []
+    try:
+        df = yf.download(tickers, period="2d", group_by='ticker', progress=False)
+        for ticker in tickers:
+            try:
+                hist = df[ticker]
+                if len(hist) >= 2:
+                    close = hist['Close'].iloc[-1]
+                    change = ((close - hist['Close'].iloc[-2]) / hist['Close'].iloc[-2]) * 100
+                    data.append({"Symbol": ticker, "Price": close, "Change": change})
+            except:
+                continue
+        return pd.DataFrame(data).sort_values("Change", ascending=False)
+    except:
+        return pd.DataFrame()
+
+@st.cache_data(ttl=300)
+def get_bloomberg_news():
+    RSS_URL = "https://www.bloomberght.com/rss"
+    try:
+        response = requests.get(RSS_URL, timeout=10)
+        soup = BeautifulSoup(response.content, 'xml')
+        items = soup.find_all('item')
+        news_list = []
+        for item in items:
+            title = item.find('title').text if item.find('title') else "Başlık Yok"
+            link = item.find('link').text if item.find('link') else "#"
+            pub_date = item.find('pubDate').text if item.find('pubDate') else ""
+            image_url = "https://via.placeholder.com/80x60?text=News"
+            image_tag = item.find('image')
+            if image_tag: image_url = image_tag.text
+            
+            news_list.append({'title': title, 'link': link, 'published': pub_date, 'image': image_url})
+        return news_list
+    except:
+        return []
+
+def get_stock_data(symbol, period, interval):
+    try:
+        df = yf.download(symbol, period=period, interval=interval, progress=False)
+        # Flatten MultiIndex if present (yfinance update)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        return df
+    except:
         return None
 
-# İndikatör hesaplama fonksiyonu
-def calculate_indicators(df, selected_indicators):
-    # Veri çerçevesini kopyala
-    df = df.copy()
-    
-    for indicator in selected_indicators:
-        if indicator == "MA":
-            # Hareketli ortalamaları hesapla
-            df['ma20'] = df['Close'].rolling(window=20, min_periods=1).mean()
-            df['ma50'] = df['Close'].rolling(window=50, min_periods=1).mean()
-            df['ma200'] = df['Close'].rolling(window=200, min_periods=1).mean()
-            
-        elif indicator == "MACD":
-            exp1 = df['Close'].ewm(span=12, adjust=False).mean()
-            exp2 = df['Close'].ewm(span=26, adjust=False).mean()
-            df['macd'] = exp1 - exp2
-            df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()
-            df['macd_diff'] = df['macd'] - df['macd_signal']
-            
-        elif indicator == "BB":
-            # Bollinger Bands hesapla
-            window = 20
-            df['bb_mid'] = df['Close'].rolling(window=window, min_periods=1).mean()
-            df['bb_std'] = df['Close'].rolling(window=window, min_periods=1).std()
-            
-            # Üst ve alt bantları hesapla
-            df['bb_high'] = df['bb_mid'] + (df['bb_std'] * 2)
-            df['bb_low'] = df['bb_mid'] - (df['bb_std'] * 2)
-            
-            # NaN değerleri temizle
-            df['bb_mid'] = df['bb_mid'].fillna(method='ffill')
-            df['bb_high'] = df['bb_high'].fillna(method='ffill')
-            df['bb_low'] = df['bb_low'].fillna(method='ffill')
-            
-            # Geçici sütunu sil
-            df.drop('bb_std', axis=1, inplace=True)
-            
-        elif indicator == "RSI":
-            delta = df['Close'].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-            rs = gain / loss
-            df['rsi'] = 100 - (100 / (1 + rs))
-            
-        elif indicator == "STOCH":
-            low_min = df['Low'].rolling(window=14).min()
-            high_max = df['High'].rolling(window=14).max()
-            df['stoch_k'] = 100 * ((df['Close'] - low_min) / (high_max - low_min))
-            df['stoch_d'] = df['stoch_k'].rolling(window=3).mean()
-            
-        elif indicator == "FIB":
-            high = df['High'].rolling(window=20).max()
-            low = df['Low'].rolling(window=20).min()
-            diff = high - low
-            df['fib_0'] = low
-            df['fib_0.236'] = low + 0.236 * diff
-            df['fib_0.382'] = low + 0.382 * diff
-            df['fib_0.5'] = low + 0.5 * diff
-            df['fib_0.618'] = low + 0.618 * diff
-            df['fib_0.786'] = low + 0.786 * diff
-            df['fib_1'] = high
-            
-        elif indicator == "ICHIMOKU":
-            # Tenkan-sen (Conversion Line)
-            high_9 = df['High'].rolling(window=9).max()
-            low_9 = df['Low'].rolling(window=9).min()
-            df['ichi_a'] = (high_9 + low_9) / 2
-            
-            # Kijun-sen (Base Line)
-            high_26 = df['High'].rolling(window=26).max()
-            low_26 = df['Low'].rolling(window=26).min()
-            df['ichi_b'] = (high_26 + low_26) / 2
-            
-            # Senkou Span A (Leading Span A)
-            df['ichi_base'] = ((df['ichi_a'] + df['ichi_b']) / 2).shift(26)
-            
-            # Senkou Span B (Leading Span B)
-            high_52 = df['High'].rolling(window=52).max()
-            low_52 = df['Low'].rolling(window=52).min()
-            df['ichi_conv'] = ((high_52 + low_52) / 2).shift(26)
-            
-        elif indicator == "STD":
-            df['std'] = df['Close'].rolling(window=20).std()
-    
-    return df
+# --- COMPONENTS ---
 
-# Grafik çizme fonksiyonu
-def plot_chart(df, symbol, selected_indicators, show_price_chart=True):
-    if df is None or df.empty:
-        st.error("Grafik çizilemiyor: Veri bulunamadı!")
-        return None
-        
-    num_plots = 1  # Fiyat grafiği her zaman var
-    if selected_indicators:
-        num_plots += len(selected_indicators)
-        
-    fig = make_subplots(
-        rows=num_plots,
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.05,
-        subplot_titles=["Fiyat"] + [indicators[ind] for ind in selected_indicators] if selected_indicators else ["Fiyat"]
-    )
-    
-    plot_row = 1
-    
-    # Fiyat grafiği her zaman ilk plot olarak eklenecek
-    if show_price_chart:
-        fig.add_trace(
-            go.Candlestick(
-                x=df.index,
-                open=df['Open'],
-                high=df['High'],
-                low=df['Low'],
-                close=df['Close'],
-                name="Fiyat"
-            ),
-            row=plot_row, col=1
-        )
-        
-        # Fiyat grafiğine hacim ekle
-        fig.add_trace(
-            go.Bar(
-                x=df.index,
-                y=df['Volume'],
-                name="Hacim",
-                marker_color='rgba(0,0,255,0.3)'
-            ),
-            row=plot_row, col=1
-        )
-    
-    plot_row += 1
-    
-    # İndikatörleri ekle
-    for indicator in selected_indicators:
-        if indicator == "MA":
-            fig.add_trace(go.Scatter(x=df.index, y=df['ma20'], name="MA20", line=dict(color='blue')), row=plot_row, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['ma50'], name="MA50", line=dict(color='red')), row=plot_row, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['ma200'], name="MA200", line=dict(color='green')), row=plot_row, col=1)
-        elif indicator == "MACD":
-            fig.add_trace(go.Scatter(x=df.index, y=df['macd'], name="MACD", line=dict(color='blue')), row=plot_row, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['macd_signal'], name="Signal", line=dict(color='red')), row=plot_row, col=1)
-            fig.add_trace(go.Bar(x=df.index, y=df['macd_diff'], name="Histogram", marker_color='gray'), row=plot_row, col=1)
-        elif indicator == "BB":
-            fig.add_trace(go.Scatter(x=df.index, y=df['bb_high'], name="Üst Bant", line=dict(color='red', dash='dash')), row=plot_row, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['bb_mid'], name="Orta Bant", line=dict(color='blue', dash='dash')), row=plot_row, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['bb_low'], name="Alt Bant", line=dict(color='green', dash='dash')), row=plot_row, col=1)
-        elif indicator == "RSI":
-            fig.add_trace(go.Scatter(x=df.index, y=df['rsi'], name="RSI", line=dict(color='blue')), row=plot_row, col=1)
-            fig.add_hline(y=70, line_dash="dash", line_color="red", row=plot_row, col=1)
-            fig.add_hline(y=30, line_dash="dash", line_color="green", row=plot_row, col=1)
-        elif indicator == "STOCH":
-            fig.add_trace(go.Scatter(x=df.index, y=df['stoch_k'], name="%K", line=dict(color='blue')), row=plot_row, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['stoch_d'], name="%D", line=dict(color='red')), row=plot_row, col=1)
-            fig.add_hline(y=80, line_dash="dash", line_color="red", row=plot_row, col=1)
-            fig.add_hline(y=20, line_dash="dash", line_color="green", row=plot_row, col=1)
-        elif indicator == "FIB":
-            fig.add_trace(go.Scatter(x=df.index, y=df['fib_0'], name="0%", line=dict(color='black')), row=plot_row, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['fib_0.236'], name="23.6%", line=dict(color='blue')), row=plot_row, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['fib_0.382'], name="38.2%", line=dict(color='green')), row=plot_row, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['fib_0.5'], name="50%", line=dict(color='yellow')), row=plot_row, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['fib_0.618'], name="61.8%", line=dict(color='orange')), row=plot_row, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['fib_0.786'], name="78.6%", line=dict(color='red')), row=plot_row, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['fib_1'], name="100%", line=dict(color='purple')), row=plot_row, col=1)
-        elif indicator == "ICHIMOKU":
-            fig.add_trace(go.Scatter(x=df.index, y=df['ichi_a'], name="Tenkan-sen", line=dict(color='blue')), row=plot_row, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['ichi_b'], name="Kijun-sen", line=dict(color='red')), row=plot_row, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['ichi_base'], name="Senkou Span A", line=dict(color='green')), row=plot_row, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['ichi_conv'], name="Senkou Span B", line=dict(color='yellow')), row=plot_row, col=1)
-        elif indicator == "STD":
-            fig.add_trace(go.Scatter(x=df.index, y=df['std'], name="Standart Sapma", line=dict(color='blue')), row=plot_row, col=1)
-        plot_row += 1
-    
-    # Grafik düzenini güncelle
-    fig.update_layout(
-        height=300 * num_plots,
-        showlegend=True,
-        xaxis_rangeslider_visible=False,
-        title=f"{symbol} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-    )
-    
-    return fig
+def render_market_bar():
+    market_data = get_market_summary()
+    if market_data:
+        html = '<div class="market-bar">'
+        for key, data in market_data.items():
+            color_class = "market-change-pos" if data['change'] >= 0 else "market-change-neg"
+            sign = "+" if data['change'] >= 0 else ""
+            price_display = f"{data['price']:.2f}" if not pd.isna(data['price']) else "N/A"
+            change_display = f"{sign}{data['change']:.2f}%" if not pd.isna(data['change']) else "0.00%"
+            
+            html += f"""
+<div class="market-item">
+    <span class="market-symbol">{key}</span>
+    <div class="market-price-group">
+        <span class="market-price">{price_display}</span>
+        <span class="{color_class}">{change_display}</span>
+    </div>
+</div>
+"""
+        html += '</div>'
+        st.markdown(html, unsafe_allow_html=True)
 
-# Fiyat kutusu fonksiyonu
-def show_price_box(df, symbol):
-    is_none = df is None
-    is_empty = False if is_none else df.empty
-    has_close = False if is_none or is_empty else 'Close' in df.columns
-    close_col = None
-    close_all_nan = False
-    if has_close:
-        close_col = df['Close']
-        if isinstance(close_col, pd.DataFrame):
-            close_col = close_col.iloc[:, 0]
-        close_all_nan = bool(close_col.isnull().all())
-    if is_none or is_empty or not has_close or close_all_nan:
-        st.error("Fiyat bilgisi bulunamadı veya 'Close' sütunu boş!")
-        return
-    # Son kapanış satırı
-    last_row = df.iloc[-1]
-    try:
-        # Her durumda float'a zorla
-        price = float(last_row['Close'].iloc[0]) if isinstance(last_row['Close'], pd.Series) else float(last_row['Close'])
-        if pd.isna(price):
-            st.error("Son fiyat (Close) değeri eksik!")
-            return
-        if len(df) > 1:
-            prev_close_val = df['Close'].iloc[-2]
-            prev_close = float(prev_close_val.iloc[0]) if isinstance(prev_close_val, pd.Series) else float(prev_close_val)
-            if not pd.isna(prev_close):
-                diff = price - prev_close
-                pct = (diff / prev_close) * 100 if prev_close != 0 else 0
-            else:
-                diff = 0
-                pct = 0
-        else:
-            diff = 0
-            pct = 0
-        color = "#16c784" if diff > 0 else ("#ea3943" if diff < 0 else "#cccccc")
-        arrow = "▲" if diff > 0 else ("▼" if diff < 0 else "→")
-        # Geciken veri saati: şu an - 15 dakika
-        gecikmeli_saat = (datetime.now() - timedelta(minutes=15)).strftime('%H:%M:%S')
-        st.markdown(f"""
-        <div style='background:#222;padding:2rem 1rem 1rem 1rem;border-radius:1rem;max-width:400px;margin-bottom:1rem;'>
-            <div style='font-size:2rem;font-weight:bold;color:white;margin-bottom:0.5rem;'>{symbol}</div>
-            <div style='font-size:3.5rem;font-weight:bold;color:{color};display:inline-block;'>{price:,.2f}</div>
-            <span style='font-size:2rem;font-weight:bold;color:{color};margin-left:1rem;'>{arrow} {diff:+.2f} ({pct:+.2f}%)</span>
-            <div style='font-size:1rem;color:#aaa;margin-top:0.5rem;'>🕒 Geciken Veriler · {gecikmeli_saat}</div>
-        </div>
-        """, unsafe_allow_html=True)
-    except Exception as e:
-        st.error(f"Fiyat kutusu gösterilemiyor: {e}")
-
-# Ana uygulama
-if __name__ == "__main__":
-    # Veri çek
-    df = get_data(selected_symbol, period, timeframe)
-    veri_cekilme_zamani = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+def render_home():
+    render_market_bar()
     
-    # --- FİYAT KUTUSU ---
-    show_price_box(df, selected_symbol)
-    # --- FİYAT KUTUSU ---
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Main Layout: 2 Columns (Left: Dashboard, Right: News Feed)
+    col_main, col_side = st.columns([3, 1])
+    
+    with col_main:
+        # Search & History
+        st.markdown("### 🔎 Piyasa Takibi")
+        
+        # Search
+        selected = st.selectbox("Sembol Ara", BIST100_SYMBOLS, index=None, placeholder="Hisse senedi arayın...", label_visibility="collapsed")
+        if selected:
+            go_to_detail(selected)
+            
+        # Last Viewed Chips
+        if st.session_state.last_viewed:
+            st.markdown('<div class="chip-container">', unsafe_allow_html=True)
+            cols = st.columns(len(st.session_state.last_viewed))
+            for idx, symbol in enumerate(st.session_state.last_viewed):
+                if idx < 8:
+                    if cols[idx].button(symbol, key=f"chip_{symbol}"):
+                        go_to_detail(symbol)
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+        # Movers Tables
+        st.markdown("<br>", unsafe_allow_html=True)
+        movers = get_market_movers()
+        if not movers.empty:
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown("#### 🚀 Yükselenler")
+                st.dataframe(
+                    movers.head(10)[['Symbol', 'Price', 'Change']].style.format({'Price': '{:.2f}', 'Change': '{:+.2f}%'})
+                    .applymap(lambda x: 'color: #26a69a', subset=['Change']),
+                    use_container_width=True,
+                    hide_index=True
+                )
+            with c2:
+                st.markdown("#### 🔻 Düşenler")
+                st.dataframe(
+                    movers.tail(10).sort_values("Change", ascending=True)[['Symbol', 'Price', 'Change']].style.format({'Price': '{:.2f}', 'Change': '{:+.2f}%'})
+                    .applymap(lambda x: 'color: #ef5350', subset=['Change']),
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+    with col_side:
+        st.markdown("### 📰 Haber Akışı")
+        news = get_bloomberg_news()
+        if news:
+            for item in news[:10]:
+                st.markdown(f"""
+                <div class="news-item">
+                    <img src="{item['image']}" class="news-img-small">
+                    <div class="news-content">
+                        <a href="{item['link']}" target="_blank" class="news-title">{item['title']}</a>
+                        <div class="news-time">{item['published'][5:16]}</div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+def render_detail():
+    symbol = st.session_state.selected_symbol
+    
+    # Top Control Bar
+    c1, c2 = st.columns([1, 10])
+    with c1:
+        if st.button("⬅"):
+            go_to_home()
+    with c2:
+        st.markdown(f"## {symbol}")
+
+    # Chart Controls
+    # Chart Controls
+    col_ctrl1, col_ctrl2, col_ctrl3 = st.columns([2, 2, 4])
+    with col_ctrl1:
+        # Default index set to '1d' (index 5) initially
+        interval = st.selectbox("Zaman Dilimi", ["1m", "5m", "15m", "1h", "4h", "1d", "1wk", "1mo"], index=5)
+    with col_ctrl2:
+        # Default index set to '1y' (index 5) initially
+        period = st.selectbox("Periyot", ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "max"], index=5)
+    with col_ctrl3:
+        indicators = st.multiselect("İndikatörler", ["MA20", "MA50", "MA200", "RSI", "MACD", "Bollinger", "Stoch", "Ichimoku", "CCI"], default=["MA20", "MA50"])
+
+    # Smart Interval Logic (Auto-fix invalid combinations)
+    original_interval = interval
+    if period in ["1mo", "3mo"] and interval in ["1m"]:
+        interval = "1h" 
+    elif period in ["6mo", "1y", "2y"] and interval in ["1m", "5m", "15m"]:
+        interval = "1d" 
+    elif period in ["5y", "10y", "max"] and interval in ["1m", "5m", "15m", "1h", "4h"]:
+        interval = "1d" 
+        
+    if original_interval != interval:
+        st.toast(f"⚠️ {period} periyodu için {original_interval} verisi mevcut değil. Otomatik olarak {interval} seçildi.", icon="ℹ️")
+
+    # Fetch
+    df = get_stock_data(symbol, period, interval)
     
     if df is not None and not df.empty:
-        # İndikatörleri hesapla
-        if selected_indicators:
-            df = calculate_indicators(df, selected_indicators)
-            
-        # Grafiği çiz
-        fig = plot_chart(df, selected_symbol, selected_indicators, show_price_chart=show_price_chart)
-        if fig is not None:
-            st.plotly_chart(fig, use_container_width=True)
-            
-        # Veri çekilme zamanını göster
-        st.info(f"Son veri çekilme zamanı: {veri_cekilme_zamani}")
+        # TradingView Style Chart
+        # Determine subplot structure based on indicators
+        has_rsi = "RSI" in indicators
+        has_macd = "MACD" in indicators
+        has_stoch = "Stoch" in indicators
+        has_cci = "CCI" in indicators
         
-        # Tarih sütununu normalize et (sadece tarih)
-        df['date_only'] = df.index.date if hasattr(df.index, 'date') else pd.to_datetime(df.index).date
-        # Seçilen tarihe ait veriyi bul
-        day_data = df[df['date_only'] == selected_date]
-        tablo = None
-        if not day_data.empty:
-            tavan = float(day_data['High'].max())
-            dip = float(day_data['Low'].min())
-            kapanis = float(day_data['Close'].iloc[-1])
-            acilis = float(day_data['Open'].iloc[0])
-            tablo = pd.DataFrame({
-                'Açılış': [acilis],
-                'Kapanış': [kapanis],
-                'Tavan (Yüksek)': [tavan],
-                'Dip (Düşük)': [dip],
-                'Tarih': [selected_date.strftime('%Y-%m-%d')]
-            })
-        # Günlük fiyat tablosu ana ekranda gösterilecekse
-        if show_price_table:
-            st.subheader("Günlük Fiyat Seviyeleri")
-            if tablo is not None:
-                st.table(tablo)
-            else:
-                st.info(f"{selected_date.strftime('%Y-%m-%d')} için veri bulunamadı.")
-        # Sinyalleri göster
-        if selected_indicators:
-            st.subheader("Sinyaller")
-            last_row = df.iloc[-1]
+        # Calculate how many subplots we need
+        # Row 1: Price (always)
+        # Row 2+: Indicators
+        subplots = []
+        if has_rsi: subplots.append("RSI")
+        if has_macd: subplots.append("MACD")
+        if has_stoch: subplots.append("Stoch")
+        if has_cci: subplots.append("CCI")
+        
+        # If no subplots selected, show Volume
+        if not subplots:
+            subplots.append("Volume")
             
-            for indicator in selected_indicators:
-                if indicator == "MA":
-                    try:
-                        close_val = float(last_row['Close'].iloc[0] if isinstance(last_row['Close'], pd.Series) else last_row['Close'])
-                        ma20_val = float(last_row['ma20'].iloc[0] if isinstance(last_row['ma20'], pd.Series) else last_row['ma20'])
-                        ma50_val = float(last_row['ma50'].iloc[0] if isinstance(last_row['ma50'], pd.Series) else last_row['ma50'])
-                        ma200_val = float(last_row['ma200'].iloc[0] if isinstance(last_row['ma200'], pd.Series) else last_row['ma200'])
-                        
-                        if close_val > ma20_val and ma20_val > ma50_val and ma50_val > ma200_val:
-                            st.success(f"MA: GÜÇLÜ AL (Fiyat: {close_val:.2f}, MA20: {ma20_val:.2f}, MA50: {ma50_val:.2f}, MA200: {ma200_val:.2f})")
-                        elif close_val < ma20_val and ma20_val < ma50_val and ma50_val < ma200_val:
-                            st.error(f"MA: GÜÇLÜ SAT (Fiyat: {close_val:.2f}, MA20: {ma20_val:.2f}, MA50: {ma50_val:.2f}, MA200: {ma200_val:.2f})")
-                        else:
-                            st.info(f"MA: BEKLE (Fiyat: {close_val:.2f}, MA20: {ma20_val:.2f}, MA50: {ma50_val:.2f}, MA200: {ma200_val:.2f})")
-                    except (KeyError, ValueError, AttributeError):
-                        st.warning("MA değerleri hesaplanamadı")
+        row_heights = [0.6] + [0.4/len(subplots)] * len(subplots)
+        
+        fig = make_subplots(
+            rows=1 + len(subplots), cols=1, 
+            shared_xaxes=True, 
+            vertical_spacing=0.02, 
+            row_heights=row_heights
+        )
+        
+        # Candlestick (Row 1)
+        fig.add_trace(go.Candlestick(
+            x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
+            name="Fiyat",
+            increasing_line_color='#26a69a', increasing_fillcolor='#26a69a',
+            decreasing_line_color='#ef5350', decreasing_fillcolor='#ef5350'
+        ), row=1, col=1)
+        
+        # Overlays (Row 1)
+        if "MA20" in indicators:
+            fig.add_trace(go.Scatter(x=df.index, y=df['Close'].rolling(20).mean(), name="MA20", line=dict(color='#2962ff', width=1)), row=1, col=1)
+        if "MA50" in indicators:
+            fig.add_trace(go.Scatter(x=df.index, y=df['Close'].rolling(50).mean(), name="MA50", line=dict(color='#ff9800', width=1)), row=1, col=1)
+        if "MA200" in indicators:
+            fig.add_trace(go.Scatter(x=df.index, y=df['Close'].rolling(200).mean(), name="MA200", line=dict(color='#e91e63', width=1)), row=1, col=1)
+        if "Bollinger" in indicators:
+            ma = df['Close'].rolling(20).mean()
+            std = df['Close'].rolling(20).std()
+            fig.add_trace(go.Scatter(x=df.index, y=ma+2*std, name="BB Upper", line=dict(color='rgba(255,255,255,0.3)', width=1)), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=ma-2*std, name="BB Lower", line=dict(color='rgba(255,255,255,0.3)', width=1), fill='tonexty', fillcolor='rgba(255,255,255,0.05)'), row=1, col=1)
+        if "Ichimoku" in indicators:
+            # Tenkan-sen (Conversion Line): (9-period high + 9-period low) / 2
+            high9 = df['High'].rolling(window=9).max()
+            low9 = df['Low'].rolling(window=9).min()
+            tenkan_sen = (high9 + low9) / 2
+
+            # Kijun-sen (Base Line): (26-period high + 26-period low) / 2
+            high26 = df['High'].rolling(window=26).max()
+            low26 = df['Low'].rolling(window=26).min()
+            kijun_sen = (high26 + low26) / 2
+
+            # Senkou Span A (Leading Span A): (Conversion Line + Base Line) / 2
+            senkou_span_a = ((tenkan_sen + kijun_sen) / 2).shift(26)
+
+            # Senkou Span B (Leading Span B): (52-period high + 52-period low) / 2
+            high52 = df['High'].rolling(window=52).max()
+            low52 = df['Low'].rolling(window=52).min()
+            senkou_span_b = ((high52 + low52) / 2).shift(26)
+
+            # Chikou Span (Lagging Span): Close shifted back 26 periods
+            chikou_span = df['Close'].shift(-26)
+
+            fig.add_trace(go.Scatter(x=df.index, y=tenkan_sen, name="Tenkan", line=dict(color='#0496ff', width=1)), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=kijun_sen, name="Kijun", line=dict(color='#991515', width=1)), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=senkou_span_a, name="Span A", line=dict(color='rgba(0, 150, 0, 0.3)', width=0), showlegend=False), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=senkou_span_b, name="Span B", line=dict(color='rgba(150, 0, 0, 0.3)', width=0), fill='tonexty', fillcolor='rgba(0, 255, 0, 0.1)', showlegend=False), row=1, col=1)
+
+
+        # Subplots
+        current_row = 2
+        for ind in subplots:
+            if ind == "RSI":
+                delta = df['Close'].diff()
+                gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+                loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+                rs = gain / loss
+                rsi = 100 - (100 / (1 + rs))
+                fig.add_trace(go.Scatter(x=df.index, y=rsi, name="RSI", line=dict(color='#9c27b0')), row=current_row, col=1)
+                fig.add_hline(y=70, line_dash="dash", line_color="rgba(255,255,255,0.3)", row=current_row, col=1)
+                fig.add_hline(y=30, line_dash="dash", line_color="rgba(255,255,255,0.3)", row=current_row, col=1)
                 
-                elif indicator == "STOCH":
-                    try:
-                        stoch_k = float(last_row['stoch_k'].iloc[0] if isinstance(last_row['stoch_k'], pd.Series) else last_row['stoch_k'])
-                        stoch_d = float(last_row['stoch_d'].iloc[0] if isinstance(last_row['stoch_d'], pd.Series) else last_row['stoch_d'])
-                        
-                        if stoch_k < 20 and stoch_d < 20:
-                            st.success(f"Stokastik: GÜÇLÜ AL (K: {stoch_k:.2f}, D: {stoch_d:.2f})")
-                        elif stoch_k > 80 and stoch_d > 80:
-                            st.error(f"Stokastik: GÜÇLÜ SAT (K: {stoch_k:.2f}, D: {stoch_d:.2f})")
-                        else:
-                            st.info(f"Stokastik: BEKLE (K: {stoch_k:.2f}, D: {stoch_d:.2f})")
-                    except (KeyError, ValueError, AttributeError):
-                        st.warning("Stokastik değerleri hesaplanamadı")
+            elif ind == "MACD":
+                exp1 = df['Close'].ewm(span=12).mean()
+                exp2 = df['Close'].ewm(span=26).mean()
+                macd = exp1 - exp2
+                signal = macd.ewm(span=9).mean()
+                fig.add_trace(go.Scatter(x=df.index, y=macd, name="MACD", line=dict(color='#2962ff')), row=current_row, col=1)
+                fig.add_trace(go.Scatter(x=df.index, y=signal, name="Signal", line=dict(color='#ff9800')), row=current_row, col=1)
+                fig.add_trace(go.Bar(x=df.index, y=macd-signal, name="Hist", marker_color='#787b86'), row=current_row, col=1)
                 
-                elif indicator == "FIB":
-                    try:
-                        close_val = float(last_row['Close'].iloc[0] if isinstance(last_row['Close'], pd.Series) else last_row['Close'])
-                        fib_0 = float(last_row['fib_0'].iloc[0] if isinstance(last_row['fib_0'], pd.Series) else last_row['fib_0'])
-                        fib_618 = float(last_row['fib_0.618'].iloc[0] if isinstance(last_row['fib_0.618'], pd.Series) else last_row['fib_0.618'])
-                        
-                        if close_val < fib_0:
-                            st.success(f"Fibonacci: DESTEK SEVİYESİ - AL (Fiyat: {close_val:.2f}, Destek: {fib_0:.2f})")
-                        elif close_val > fib_618:
-                            st.error(f"Fibonacci: DİRENÇ SEVİYESİ - SAT (Fiyat: {close_val:.2f}, Direnç: {fib_618:.2f})")
-                        else:
-                            st.info(f"Fibonacci: BEKLE (Fiyat: {close_val:.2f}, Destek: {fib_0:.2f}, Direnç: {fib_618:.2f})")
-                    except (KeyError, ValueError, AttributeError):
-                        st.warning("Fibonacci değerleri hesaplanamadı")
+            elif ind == "Stoch":
+                # Stochastic Oscillator
+                low14 = df['Low'].rolling(window=14).min()
+                high14 = df['High'].rolling(window=14).max()
+                k = 100 * ((df['Close'] - low14) / (high14 - low14))
+                d = k.rolling(window=3).mean()
+                fig.add_trace(go.Scatter(x=df.index, y=k, name="%K", line=dict(color='#2962ff')), row=current_row, col=1)
+                fig.add_trace(go.Scatter(x=df.index, y=d, name="%D", line=dict(color='#ff9800')), row=current_row, col=1)
+                fig.add_hline(y=80, line_dash="dash", line_color="rgba(255,255,255,0.3)", row=current_row, col=1)
+                fig.add_hline(y=20, line_dash="dash", line_color="rgba(255,255,255,0.3)", row=current_row, col=1)
                 
-                elif indicator == "ICHIMOKU":
-                    try:
-                        close_val = float(last_row['Close'].iloc[0] if isinstance(last_row['Close'], pd.Series) else last_row['Close'])
-                        tenkan = float(last_row['ichi_a'].iloc[0] if isinstance(last_row['ichi_a'], pd.Series) else last_row['ichi_a'])
-                        kijun = float(last_row['ichi_b'].iloc[0] if isinstance(last_row['ichi_b'], pd.Series) else last_row['ichi_b'])
-                        senkou_a = float(last_row['ichi_base'].iloc[0] if isinstance(last_row['ichi_base'], pd.Series) else last_row['ichi_base'])
-                        senkou_b = float(last_row['ichi_conv'].iloc[0] if isinstance(last_row['ichi_conv'], pd.Series) else last_row['ichi_conv'])
-                        
-                        if close_val > senkou_a and close_val > senkou_b and tenkan > kijun:
-                            st.success(f"Ichimoku: GÜÇLÜ AL (Fiyat: {close_val:.2f}, Tenkan: {tenkan:.2f}, Kijun: {kijun:.2f})")
-                        elif close_val < senkou_a and close_val < senkou_b and tenkan < kijun:
-                            st.error(f"Ichimoku: GÜÇLÜ SAT (Fiyat: {close_val:.2f}, Tenkan: {tenkan:.2f}, Kijun: {kijun:.2f})")
-                        else:
-                            st.info(f"Ichimoku: BEKLE (Fiyat: {close_val:.2f}, Tenkan: {tenkan:.2f}, Kijun: {kijun:.2f})")
-                    except (KeyError, ValueError, AttributeError):
-                        st.warning("Ichimoku değerleri hesaplanamadı")
+            elif ind == "CCI":
+                # Commodity Channel Index
+                tp = (df['High'] + df['Low'] + df['Close']) / 3
+                sma = tp.rolling(20).mean()
+                mad = tp.rolling(20).apply(lambda x: pd.Series(x).sub(x.mean()).abs().mean())
+                cci = (tp - sma) / (0.015 * mad)
+                fig.add_trace(go.Scatter(x=df.index, y=cci, name="CCI", line=dict(color='#00bcd4')), row=current_row, col=1)
+                fig.add_hline(y=100, line_dash="dash", line_color="rgba(255,255,255,0.3)", row=current_row, col=1)
+                fig.add_hline(y=-100, line_dash="dash", line_color="rgba(255,255,255,0.3)", row=current_row, col=1)
                 
-                elif indicator == "STD":
-                    try:
-                        close_val = float(last_row['Close'].iloc[0] if isinstance(last_row['Close'], pd.Series) else last_row['Close'])
-                        std_val = float(last_row['std'].iloc[0] if isinstance(last_row['std'], pd.Series) else last_row['std'])
-                        ma20_val = float(last_row['ma20'].iloc[0] if isinstance(last_row['ma20'], pd.Series) else last_row['ma20'])
-                        
-                        if std_val > ma20_val * 0.02:  # Volatilite yüksek
-                            st.warning(f"Standart Sapma: YÜKSEK VOLATİLİTE (Std: {std_val:.2f}, MA20: {ma20_val:.2f})")
-                        else:
-                            st.info(f"Standart Sapma: NORMAL VOLATİLİTE (Std: {std_val:.2f}, MA20: {ma20_val:.2f})")
-                    except (KeyError, ValueError, AttributeError):
-                        st.warning("Standart Sapma değerleri hesaplanamadı")
-                
-                elif indicator == "RSI":
-                    try:
-                        rsi_val = float(last_row['rsi'].iloc[0] if isinstance(last_row['rsi'], pd.Series) else last_row['rsi'])
-                        if rsi_val < 30:
-                            st.success(f"RSI: GÜÇLÜ AL ({rsi_val:.2f})")
-                        elif rsi_val > 70:
-                            st.error(f"RSI: GÜÇLÜ SAT ({rsi_val:.2f})")
-                        else:
-                            st.info(f"RSI: BEKLE ({rsi_val:.2f})")
-                    except (KeyError, ValueError, AttributeError):
-                        st.warning("RSI değeri hesaplanamadı")
-                
-                elif indicator == "MACD":
-                    try:
-                        macd_val = float(last_row['macd'].iloc[0] if isinstance(last_row['macd'], pd.Series) else last_row['macd'])
-                        macd_signal_val = float(last_row['macd_signal'].iloc[0] if isinstance(last_row['macd_signal'], pd.Series) else last_row['macd_signal'])
-                        
-                        if macd_val > macd_signal_val:
-                            st.success(f"MACD: AL (MACD: {macd_val:.2f}, Signal: {macd_signal_val:.2f})")
-                        elif macd_val < macd_signal_val:
-                            st.error(f"MACD: SAT (MACD: {macd_val:.2f}, Signal: {macd_signal_val:.2f})")
-                        else:
-                            st.info(f"MACD: BEKLE (MACD: {macd_val:.2f}, Signal: {macd_signal_val:.2f})")
-                    except (KeyError, ValueError, AttributeError):
-                        st.warning("MACD değerleri hesaplanamadı")
-                
-                elif indicator == "BB":
-                    try:
-                        close_val = float(last_row['Close'].iloc[0] if isinstance(last_row['Close'], pd.Series) else last_row['Close'])
-                        bb_low_val = float(last_row['bb_low'].iloc[0] if isinstance(last_row['bb_low'], pd.Series) else last_row['bb_low'])
-                        bb_high_val = float(last_row['bb_high'].iloc[0] if isinstance(last_row['bb_high'], pd.Series) else last_row['bb_high'])
-                        bb_mid_val = float(last_row['bb_mid'].iloc[0] if isinstance(last_row['bb_mid'], pd.Series) else last_row['bb_mid'])
-                        
-                        if close_val < bb_low_val:
-                            st.success(f"Bollinger: ALT BAND - AL (Fiyat: {close_val:.2f}, Alt Bant: {bb_low_val:.2f})")
-                        elif close_val > bb_high_val:
-                            st.error(f"Bollinger: ÜST BAND - SAT (Fiyat: {close_val:.2f}, Üst Bant: {bb_high_val:.2f})")
-                        else:
-                            st.info(f"Bollinger: BEKLE (Fiyat: {close_val:.2f}, Orta Bant: {bb_mid_val:.2f})")
-                    except (KeyError, ValueError, AttributeError):
-                        st.warning("Bollinger Bands değerleri hesaplanamadı")
-        else:
-            st.warning("Lütfen en az bir indikatör seçin!")
-    else:
-        st.error("Veri çekilemedi!")
+            elif ind == "Volume":
+                fig.add_trace(go.Bar(x=df.index, y=df['Volume'], name="Hacim", marker_color='rgba(41, 98, 255, 0.3)'), row=current_row, col=1)
+            
+            current_row += 1
+
+        # Layout Config
+        fig.update_layout(
+            height=800 if len(subplots) > 1 else 600,
+            template="plotly_dark",
+            paper_bgcolor='#131722',
+            plot_bgcolor='#131722',
+            xaxis_rangeslider_visible=False,
+            margin=dict(l=0, r=50, t=20, b=20),
+            xaxis=dict(showgrid=True, gridcolor='#2a2e39'),
+            yaxis=dict(showgrid=True, gridcolor='#2a2e39', side='right'),
+            legend=dict(orientation="h", y=1, x=0, bgcolor='rgba(0,0,0,0)')
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Stats Grid
+        st.markdown("### İstatistikler")
+        last = df.iloc[-1]
+        
+        # Helper to safely get float value
+        def get_val(series_val):
+            if isinstance(series_val, pd.Series):
+                return float(series_val.iloc[0])
+            return float(series_val)
+
+        s1, s2, s3, s4 = st.columns(4)
+        s1.metric("Kapanış", f"{get_val(last['Close']):.2f}")
+        s2.metric("Açılış", f"{get_val(last['Open']):.2f}")
+        s3.metric("Yüksek", f"{get_val(last['High']):.2f}")
+        s4.metric("Düşük", f"{get_val(last['Low']):.2f}")
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # CSV Download
+        csv = df.to_csv().encode('utf-8')
+        st.download_button(
+            label="📥 Verileri İndir (CSV)",
+            data=csv,
+            file_name=f"{symbol}_data.csv",
+            mime="text/csv",
+            key='download-csv'
+        )
+
+# --- MAIN ---
+if st.session_state.view == 'home':
+    render_home()
+elif st.session_state.view == 'detail':
+    render_detail()

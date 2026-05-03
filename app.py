@@ -2,12 +2,16 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 from datetime import datetime, timedelta
+import io
+import re
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
 import requests
 from bs4 import BeautifulSoup
 import ssl
+
+from core import daily_log as dl
 
 # SSL Fix
 if hasattr(ssl, '_create_unverified_context'):
@@ -230,6 +234,10 @@ def go_to_bulk():
     st.session_state.view = 'bulk'
     st.rerun()
 
+def go_to_daily_log():
+    st.session_state.view = 'daily_log'
+    st.rerun()
+
 # --- DATA FETCHING ---
 @st.cache_data(ttl=60)
 def get_market_summary():
@@ -352,12 +360,15 @@ def render_home():
     
     with col_main:
         # Search & History
-        c_search, c_bulk = st.columns([3, 1])
+        c_search, c_bulk, c_log = st.columns([2, 1, 1])
         with c_search:
             st.markdown("### 🔎 Piyasa Takibi")
         with c_bulk:
             if st.button("📊 Toplu Analiz", use_container_width=True):
                 go_to_bulk()
+        with c_log:
+            if st.button("🗒️ Günlük Kayıt", use_container_width=True):
+                go_to_daily_log()
         
         # Search
         selected = st.selectbox("Sembol Ara", BIST100_SYMBOLS, index=None, placeholder="Hisse senedi arayın...", label_visibility="collapsed")
@@ -1011,10 +1022,355 @@ def calculate_technical_signals(df):
 
     return pd.DataFrame(signals)
 
+
+# --- DAILY LOG / EXCEL TABLOSU ---
+
+def _signals_df_to_dict(signals_df: pd.DataFrame) -> dict:
+    """calculate_technical_signals çıktısını {indicator_name: row_dict} sözlüğüne çevirir."""
+    out = {}
+    if signals_df is None or signals_df.empty:
+        return out
+    for _, row in signals_df.iterrows():
+        out[str(row['İndikatör'])] = {
+            'sinyal': str(row.get('Sinyal', '')),
+            'degerler': str(row.get('Değerler', '')),
+        }
+    return out
+
+
+def _extract_rsi_value(degerler: str) -> float | None:
+    m = re.search(r"RSI:\s*([0-9]+\.?[0-9]*)", degerler or "")
+    if m:
+        try:
+            return float(m.group(1))
+        except ValueError:
+            return None
+    return None
+
+
+def _summarize_general(signal_map: dict) -> str:
+    """AL/SAT sayısına göre genel özet üretir."""
+    al = sat = bekle = 0
+    for v in signal_map.values():
+        s = (v.get('sinyal') or '').upper()
+        if 'AL' in s and 'SAT' not in s:
+            al += 1
+        elif 'SAT' in s:
+            sat += 1
+        elif 'BEKLE' in s:
+            bekle += 1
+    if al == 0 and sat == 0:
+        return "BEKLE"
+    if al > sat * 2:
+        return "GÜÇLÜ AL"
+    if sat > al * 2:
+        return "GÜÇLÜ SAT"
+    if al > sat:
+        return "AL"
+    if sat > al:
+        return "SAT"
+    return "BEKLE"
+
+
+def compute_daily_record(symbol: str) -> dict | None:
+    """
+    Verilen hisse için site içi hesaplamaları kullanarak bir günlük kayıt dict'i üretir.
+    DB'ye yazılabilir formatta (DB kolon adlarıyla) döner.
+    """
+    yf_symbol = symbol if symbol.endswith('.IS') else f"{symbol}.IS"
+    df = get_stock_data(yf_symbol, "1y", "1d")
+    if df is None or df.empty:
+        return None
+
+    last = df.iloc[-1]
+
+    def _f(v):
+        try:
+            if isinstance(v, pd.Series):
+                v = v.iloc[0]
+            v = float(v)
+            if pd.isna(v):
+                return None
+            return round(v, 4)
+        except (TypeError, ValueError):
+            return None
+
+    signals_df = calculate_technical_signals(df)
+    sig_map = _signals_df_to_dict(signals_df)
+
+    rsi_value = _extract_rsi_value(sig_map.get('RSI', {}).get('degerler', ''))
+    genel = _summarize_general(sig_map)
+
+    tarih_iso = dl.today_istanbul().isoformat()
+    kaydedilme = dl.now_istanbul().strftime("%Y-%m-%d %H:%M:%S")
+
+    record = {
+        'tarih': tarih_iso,
+        'hisse': symbol.upper().replace('.IS', ''),
+        'kapanis': _f(last.get('Close')),
+        'acilis': _f(last.get('Open')),
+        'yuksek': _f(last.get('High')),
+        'dusuk': _f(last.get('Low')),
+        'ma_sinyal': sig_map.get('Hareketli Ortalamalar (MA)', {}).get('sinyal') or '',
+        'macd_sinyal': sig_map.get('MACD', {}).get('sinyal') or '',
+        'rsi': rsi_value,
+        'bollinger_sinyal': sig_map.get('Bollinger Bantları', {}).get('sinyal') or '',
+        'stokastik': sig_map.get('Stokastik', {}).get('sinyal') or '',
+        'ichimoku': sig_map.get('Ichimoku', {}).get('sinyal') or '',
+        'genel_sinyal': genel,
+        'kaydedilme_zamani': kaydedilme,
+    }
+    return record
+
+
+def run_daily_capture(symbols: list[str], overwrite: bool = False, progress_cb=None) -> dict:
+    """
+    Verilen sembol listesi için bir kerede günlük kayıt yapar.
+    overwrite=True yalnızca BUGÜNÜN kaydı için geçerlidir; geçmiş tarihler korunur (daily_log içinde).
+    """
+    records = []
+    failed = []
+    for idx, sym in enumerate(symbols):
+        try:
+            rec = compute_daily_record(sym)
+            if rec is not None:
+                records.append(rec)
+            else:
+                failed.append(sym)
+        except Exception:
+            failed.append(sym)
+        if progress_cb:
+            try:
+                progress_cb((idx + 1) / max(1, len(symbols)), sym)
+            except Exception:
+                pass
+
+    inserted, skipped = dl.insert_records(records, overwrite=overwrite)
+    return {
+        'inserted': inserted,
+        'skipped': skipped,
+        'failed': failed,
+        'total': len(symbols),
+    }
+
+
+def maybe_run_auto_capture():
+    """
+    Türkiye saati 18:30'dan sonraysa ve bugün için kayıt yoksa otomatik olarak
+    günlük kayıt yapar. Bu fonksiyon her sayfa render'ında çağrılır; aynı session
+    içinde tekrar çalışmasın diye st.session_state.last_auto_check ile sınırlanır.
+    """
+    try:
+        now = dl.now_istanbul()
+        today_str = now.date().isoformat()
+
+        last_check = st.session_state.get('last_auto_check_date')
+        if last_check == today_str:
+            return None
+
+        # 18:30 ve sonrası
+        if (now.hour, now.minute) < (18, 30):
+            return None
+
+        # Bugün için zaten kayıt varsa çalıştırma
+        if dl.has_record_for_today():
+            st.session_state.last_auto_check_date = today_str
+            return None
+
+        symbols = dl.get_target_symbols()
+        if not symbols:
+            return None
+
+        result = run_daily_capture(symbols, overwrite=False)
+        st.session_state.last_auto_check_date = today_str
+        st.session_state.last_auto_capture_result = result
+        return result
+    except Exception:
+        return None
+
+
+def render_daily_log():
+    st.markdown("## 🗒️ Günlük Kayıt / Excel Tablosu")
+
+    c_back, c_refresh = st.columns([1, 1])
+    with c_back:
+        if st.button("⬅ Ana Sayfaya Dön", key="daily_log_back"):
+            go_to_home()
+    with c_refresh:
+        # Sayfa açıkken her 5 dakikada bir tetikle (otomatik 18:30 kontrolü için)
+        st_autorefresh(interval=300_000, limit=None, key="daily_log_autorefresh")
+
+    # Otomatik 18:30 kontrolü
+    auto_result = maybe_run_auto_capture()
+    if auto_result and auto_result.get('inserted'):
+        st.success(
+            f"⏰ Otomatik kayıt yapıldı (18:30 sonrası): "
+            f"{auto_result['inserted']} eklendi, {auto_result['skipped']} atlandı, "
+            f"{len(auto_result['failed'])} başarısız."
+        )
+
+    # Bilgi paneli
+    symbols = dl.get_target_symbols()
+    now_ist = dl.now_istanbul()
+    today_str = now_ist.date().isoformat()
+
+    info_cols = st.columns(4)
+    info_cols[0].metric("📅 Bugün (TR)", today_str)
+    info_cols[1].metric("🕒 Saat (TR)", now_ist.strftime("%H:%M"))
+    info_cols[2].metric("📈 Takipteki Hisseler", str(len(symbols)))
+    info_cols[3].metric("💾 Toplam Kayıt", str(dl.total_record_count()))
+
+    with st.expander("🎯 Takip edilen hisse listesi (Excel + ek hisseler)"):
+        st.write(", ".join(symbols) if symbols else "Hisse bulunamadı.")
+        st.caption(
+            "Excel dosyası: `Başlıksız e-tablo.xlsx` (proje kökünde). "
+            "Sütun başlıklarındaki 3-6 karakterli hisse kodları otomatik algılanır. "
+            "Her durumda SISE ve ASELS dahil edilir."
+        )
+
+    st.markdown("---")
+    st.markdown("### ⚡ Manuel Kayıt")
+
+    c1, c2, c3 = st.columns([2, 2, 3])
+    with c1:
+        manual_btn = st.button("💾 Bugünün Verilerini Kaydet", type="primary", use_container_width=True)
+    with c2:
+        overwrite_today = st.checkbox(
+            "Bugünkü mevcut kayıtları güncelle",
+            value=False,
+            help="İşaretliyse bugün için aynı hisseye ait kayıt varsa güncellenir. Geçmiş tarihler ASLA değişmez."
+        )
+    with c3:
+        st.caption("Otomatik kayıt: Türkiye saati ile **18:30** sonrasında, sayfa açıkken bir kez çalışır.")
+
+    if manual_btn:
+        if not symbols:
+            st.error("Takip edilecek hisse bulunamadı. Excel dosyasını kontrol edin.")
+        else:
+            progress_bar = st.progress(0.0, text="Veriler hazırlanıyor...")
+            status = st.empty()
+
+            def _cb(p, s):
+                progress_bar.progress(min(1.0, p), text=f"İşleniyor: {s}")
+                status.caption(f"İşlenen: {s}")
+
+            result = run_daily_capture(symbols, overwrite=overwrite_today, progress_cb=_cb)
+            progress_bar.empty()
+            status.empty()
+
+            msg = (
+                f"✅ Manuel kayıt tamamlandı: **{result['inserted']}** kayıt eklendi/güncellendi, "
+                f"**{result['skipped']}** zaten mevcuttu (atlandı), "
+                f"**{len(result['failed'])}** hisse veri çekilemediği için başarısız oldu."
+            )
+            st.success(msg)
+            if result['failed']:
+                st.warning("Başarısız: " + ", ".join(result['failed']))
+            st.rerun()
+
+    st.markdown("---")
+    st.markdown("### 📊 Tablo")
+
+    df = dl.fetch_all()
+
+    if df.empty:
+        st.info("Henüz kayıt bulunmuyor. Üstteki **Bugünün Verilerini Kaydet** butonuyla başlayabilirsiniz.")
+        return
+
+    # Filtreler
+    fc1, fc2, fc3 = st.columns([2, 2, 2])
+    with fc1:
+        date_options = ["(Tümü)"] + sorted(df['Tarih'].dropna().unique().tolist(), reverse=True)
+        sel_date = st.selectbox("Tarihe göre filtrele", date_options, index=0)
+    with fc2:
+        sym_options = ["(Tümü)"] + sorted(df['Hisse'].dropna().unique().tolist())
+        sel_sym = st.selectbox("Hisseye göre filtrele", sym_options, index=0)
+    with fc3:
+        text_filter = st.text_input("Metin ara (sinyallerde)", "")
+
+    view_df = df.copy()
+    if sel_date != "(Tümü)":
+        view_df = view_df[view_df['Tarih'] == sel_date]
+    if sel_sym != "(Tümü)":
+        view_df = view_df[view_df['Hisse'] == sel_sym]
+    if text_filter:
+        mask = view_df.apply(
+            lambda row: row.astype(str).str.contains(text_filter, case=False, na=False).any(),
+            axis=1,
+        )
+        view_df = view_df[mask]
+
+    st.caption(f"Görünen kayıt: {len(view_df)} / Toplam: {len(df)}")
+
+    # Sinyalleri renklendirme
+    def _color_signal(val):
+        s = str(val).upper()
+        if 'GÜÇLÜ AL' in s:
+            return 'color: #26a69a; font-weight: 700'
+        if 'GÜÇLÜ SAT' in s:
+            return 'color: #ef5350; font-weight: 700'
+        if 'AL' in s and 'SAT' not in s:
+            return 'color: #26a69a'
+        if 'SAT' in s:
+            return 'color: #ef5350'
+        if 'BEKLE' in s:
+            return 'color: #2962ff'
+        return ''
+
+    signal_cols = ['MA Sinyali', 'MACD Sinyali', 'Bollinger Sinyali', 'Stokastik', 'Ichimoku', 'Genel Sinyal']
+    signal_cols = [c for c in signal_cols if c in view_df.columns]
+
+    styler = view_df.style.format({
+        'Kapanış': '{:.2f}',
+        'Açılış': '{:.2f}',
+        'Yüksek': '{:.2f}',
+        'Düşük': '{:.2f}',
+        'RSI': '{:.2f}',
+    }, na_rep='-').applymap(_color_signal, subset=signal_cols)
+
+    st.dataframe(styler, use_container_width=True, hide_index=True, height=520)
+
+    # İndirme butonları
+    st.markdown("### ⬇️ İndir")
+    dc1, dc2 = st.columns(2)
+    with dc1:
+        csv_bytes = df.to_csv(index=False).encode('utf-8-sig')
+        st.download_button(
+            label="📥 Tüm Kayıtları İndir (CSV)",
+            data=csv_bytes,
+            file_name=f"borsabot_gunluk_kayit_{today_str}.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+    with dc2:
+        xlsx_buf = io.BytesIO()
+        with pd.ExcelWriter(xlsx_buf, engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name='Günlük Kayıt', index=False)
+        st.download_button(
+            label="📥 Tüm Kayıtları İndir (XLSX)",
+            data=xlsx_buf.getvalue(),
+            file_name=f"borsabot_gunluk_kayit_{today_str}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+
+
 # --- MAIN ---
+# DB'yi başlat (uygulama ilk açıldığında tabloyu oluşturur)
+try:
+    dl.init_db()
+except Exception:
+    pass
+
+# 18:30 sonrasında otomatik günlük kayıt; her sayfa render'ında bir kez
+# kontrol edilir, aynı gün içinde tekrar tetiklenmez.
+maybe_run_auto_capture()
+
 if st.session_state.view == 'home':
     render_home()
 elif st.session_state.view == 'detail':
     render_detail()
 elif st.session_state.view == 'bulk':
     render_bulk_analysis()
+elif st.session_state.view == 'daily_log':
+    render_daily_log()

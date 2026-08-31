@@ -12,3 +12,10 @@ __pycache__/
 .idea/
 .vscode/
 *.log
+.streamlit/secrets.toml
+
+# stock_forecaster: sanal ortam, ham veri ve eğitilmiş modeller yerelde kalır
+# (data/raw -> src/download_all.py, modeller -> src/train_direction_models.py ile yeniden üretilir)
+stock_forecaster/.venv/
+stock_forecaster/data/
+stock_forecaster/models/

@@ -9,9 +9,14 @@ from html import escape as html_escape
 import re
 import subprocess
 import sys
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from collections import deque
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
+from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
 import requests
 from bs4 import BeautifulSoup
 import ssl
@@ -27,13 +32,59 @@ st.set_page_config(
     page_title="BorsaBot Finans",
     page_icon="📈",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="collapsed",
+    # Streamlit'in "Get help / Report a bug / About" menüsünü tamamen kapat
+    menu_items={
+        "Get Help": None,
+        "Report a bug": None,
+        "About": None,
+    },
 )
 
 # --- GOOGLE FINANCE THEME CSS ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap');
+
+    /* ---------- Streamlit varsayılan arayüz elemanlarını gizle ---------- */
+    /* Hamburger menü, Deploy butonu, footer, üst dekorasyon çizgisi ve
+       sağ üstteki "RUNNING... / Stop" durum göstergesi. */
+    #MainMenu,
+    [data-testid="stMainMenu"],
+    [data-testid="stToolbar"],
+    [data-testid="stToolbarActions"],
+    .stAppToolbar,
+    [data-testid="stAppDeployButton"],
+    [data-testid="stDeployButton"],
+    .stDeployButton,
+    [data-testid="stStatusWidget"],
+    [data-testid="stConnectionStatus"],
+    [data-testid="stDecoration"],
+    #GithubIcon,
+    footer,
+    [data-testid="stFooter"],
+    .viewerBadge_container__1QSob,
+    .styles_viewerBadge__1yB5_,
+    .viewerBadge_link__qRIco {
+        display: none !important;
+        visibility: hidden !important;
+        height: 0 !important;
+    }
+
+    /* Üst header barı tamamen kaldırılıyor (fixed konumlu, layout'u etkilemez) */
+    header[data-testid="stHeader"],
+    .stAppHeader {
+        display: none !important;
+        height: 0 !important;
+        visibility: hidden !important;
+    }
+
+    /* Sidebar açma/kapama okunu da sadeleştir */
+    [data-testid="stSidebarCollapseButton"],
+    [data-testid="collapsedControl"] { display: none !important; }
+
+    /* Kod bloklarındaki kopyala ikonunun Streamlit rozeti gibi durmaması için */
+    [data-testid="stActionButtonIcon"] { opacity: 0.4; }
 
     :root {
         --gf-bg: #131314;
@@ -461,15 +512,74 @@ def _series_for(df, ticker):
         return None
 
 
-@st.cache_data(ttl=120, show_spinner=False)
-def get_quotes(tickers: tuple, period: str = "1mo", interval: str = "1d") -> dict:
-    """
-    Verilen semboller için {ticker: {price, change, pct, spark}} döndürür.
-    spark: mini grafik için son kapanış listesi.
-    """
-    tickers = list(dict.fromkeys(tickers))
-    if not tickers:
-        return {}
+# Yahoo'nun toplu "spark" uç noktası: tek istekte ~20 sembolün fiyatı + mini
+# grafik serisi. yf.download sembol başına ayrı istek attığı ve paralelleşmediği
+# için (79 sembol ≈ 24 sn) ana sayfa verisi bu uç noktadan çekilir (≈ 0.5 sn).
+_SPARK_URL = "https://query1.finance.yahoo.com/v7/finance/spark"
+_SPARK_CHUNK = 20
+_SPARK_HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
+_PERIOD_TO_RANGE = {
+    "1d": "1d", "5d": "5d", "1mo": "1mo", "3mo": "3mo", "6mo": "6mo",
+    "1y": "1y", "2y": "2y", "5y": "5y", "10y": "10y", "ytd": "ytd", "max": "max",
+}
+
+
+def _spark_fetch(chunk: tuple, rng: str, interval: str) -> list:
+    resp = requests.get(
+        _SPARK_URL,
+        params={"symbols": ",".join(chunk), "range": rng, "interval": interval},
+        headers=_SPARK_HEADERS,
+        timeout=12,
+    )
+    resp.raise_for_status()
+    return (resp.json().get("spark") or {}).get("result") or []
+
+
+def _spark_quotes(tickers: list, period: str, interval: str) -> dict:
+    """Spark uç noktasından {ticker: {price, change, pct, spark}} döndürür."""
+    rng = _PERIOD_TO_RANGE.get(period, "1mo")
+    chunks = [tuple(tickers[i:i + _SPARK_CHUNK]) for i in range(0, len(tickers), _SPARK_CHUNK)]
+    results = []
+    with ThreadPoolExecutor(max_workers=min(8, len(chunks))) as ex:
+        futures = [ex.submit(_spark_fetch, c, rng, interval) for c in chunks]
+        for f in futures:
+            try:
+                results.extend(f.result())
+            except Exception:
+                continue
+
+    out = {}
+    for item in results:
+        try:
+            symbol = item.get("symbol")
+            resp = (item.get("response") or [None])[0]
+            if not symbol or not resp:
+                continue
+            quote = ((resp.get("indicators") or {}).get("quote") or [{}])[0]
+            closes = [float(v) for v in (quote.get("close") or []) if v is not None]
+            meta = resp.get("meta") or {}
+            if not closes:
+                price = meta.get("regularMarketPrice")
+                if price is None:
+                    continue
+                closes = [float(price)]
+            price = closes[-1]
+            prev = closes[-2] if len(closes) > 1 else meta.get("chartPreviousClose") or price
+            prev = float(prev)
+            change = price - prev
+            out[symbol] = {
+                "price": price,
+                "change": change,
+                "pct": (change / prev * 100) if prev else 0.0,
+                "spark": closes[-40:],
+            }
+        except (TypeError, ValueError, IndexError):
+            continue
+    return out
+
+
+def _yf_quotes(tickers: list, period: str, interval: str) -> dict:
+    """Yedek yol: spark uç noktası yanıt vermezse yfinance ile indir."""
     out = {}
     try:
         raw = yf.download(
@@ -486,23 +596,65 @@ def get_quotes(tickers: tuple, period: str = "1mo", interval: str = "1d") -> dic
         price = float(close.iloc[-1])
         prev = float(close.iloc[-2]) if len(close) > 1 else price
         change = price - prev
-        pct = (change / prev * 100) if prev else 0.0
         out[t] = {
             "price": price,
             "change": change,
-            "pct": pct,
+            "pct": (change / prev * 100) if prev else 0.0,
             "spark": [float(v) for v in close.tail(40).tolist()],
         }
     return out
 
 
-@st.cache_data(ttl=300, show_spinner=False)
-def get_market_movers(limit: int = 40) -> pd.DataFrame:
+@st.cache_data(ttl=180, show_spinner=False)
+def get_quotes(tickers: tuple, period: str = "1mo", interval: str = "1d") -> dict:
+    """
+    Verilen semboller için {ticker: {price, change, pct, spark}} döndürür.
+    spark: mini grafik için son kapanış listesi.
+    """
+    tickers = list(dict.fromkeys(tickers))
+    if not tickers:
+        return {}
+
+    out = _spark_quotes(tickers, period, interval)
+    if not out:
+        # Spark hiç veri döndürmediyse (uç nokta erişilemiyor) eski yola düş.
+        out = _yf_quotes(tickers, period, interval)
+    return out
+
+
+def home_ticker_universe(extra: tuple = ()) -> tuple:
+    """Ana sayfanın tek bir istekte çekeceği tüm sembollerin birleşimi."""
+    syms = [t for t, _ in TICKER_STRIP]
+    syms += [t for t, _ in SECTOR_INDICES]
+    for items in MARKET_TABS.values():
+        syms += [t for t, _ in items]
+    syms += [s for s in BIST100_SYMBOLS if not s.startswith("XU")][:MOVERS_LIMIT]
+    syms += list(extra)
+    return tuple(dict.fromkeys(syms))
+
+
+def prefetch_home_quotes(extra: tuple = ()) -> dict:
+    """
+    Ana sayfadaki tüm bölümlerin verisini TEK istek turunda çeker.
+    Bölümler ayrı ayrı get_quotes çağırdığında her biri ayrı bir HTTP turu
+    demekti (10 × ~0.4 sn); burada hepsi tek seferde alınır.
+    """
+    return get_quotes(home_ticker_universe(extra))
+
+
+MOVERS_LIMIT = 40
+
+
+def get_market_movers(quotes: dict | None = None, limit: int = MOVERS_LIMIT) -> pd.DataFrame:
     """En çok yükselen / düşen hisseler."""
     tickers = tuple(s for s in BIST100_SYMBOLS if not s.startswith("XU"))[:limit]
-    quotes = get_quotes(tickers)
+    if quotes is None:
+        quotes = get_quotes(tickers)
     rows = []
-    for t, q in quotes.items():
+    for t in tickers:
+        q = quotes.get(t)
+        if not q:
+            continue
         rows.append({"Sembol": t.replace(".IS", ""), "Fiyat": q["price"], "Değişim %": q["pct"]})
     if not rows:
         return pd.DataFrame(columns=["Sembol", "Fiyat", "Değişim %"])
@@ -527,6 +679,7 @@ def get_bloomberg_news():
         return []
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def get_stock_data(symbol, period, interval):
     try:
         df = yf.download(symbol, period=period, interval=interval, progress=False, auto_adjust=True)
@@ -664,9 +817,10 @@ def render_topbar(show_search: bool = True):
             go_to_forecast()
 
 
-def render_ticker_strip():
+def render_ticker_strip(quotes: dict | None = None):
     """Üstte ince piyasa şeridi (BIST, dolar, altın, brent, bitcoin)."""
-    quotes = get_quotes(tuple(t for t, _ in TICKER_STRIP))
+    if quotes is None:
+        quotes = get_quotes(tuple(t for t, _ in TICKER_STRIP))
     if not quotes:
         return
     html = '<div class="gf-cards" style="padding-top:2px;padding-bottom:2px;">'
@@ -704,7 +858,7 @@ def quote_button(sym: str, q: dict | None, label: str | None = None, key_prefix:
         st.rerun()
 
 
-def render_side_lists():
+def render_side_lists(quotes: dict | None = None):
     """Sol panel: İzleme listesi, son bakılanlar, sektör endeksleri."""
     st.markdown('<div class="gf-side-title">☰ Listeler</div>', unsafe_allow_html=True)
 
@@ -712,9 +866,9 @@ def render_side_lists():
     st.markdown('<div class="gf-side-sub">İzleme listesi</div>', unsafe_allow_html=True)
     wl = st.session_state.watchlist
     if wl:
-        quotes = get_quotes(tuple(wl))
+        wl_quotes = quotes if quotes is not None else get_quotes(tuple(wl))
         for sym in wl:
-            quote_button(sym, quotes.get(sym), key_prefix="wl")
+            quote_button(sym, wl_quotes.get(sym), key_prefix="wl")
     else:
         st.markdown('<div class="gf-empty">Bu liste boş.</div>', unsafe_allow_html=True)
 
@@ -728,13 +882,13 @@ def render_side_lists():
     if st.session_state.last_viewed:
         st.markdown('<div class="gf-side-sub">Son bakılanlar</div>', unsafe_allow_html=True)
         lv = st.session_state.last_viewed[:6]
-        lv_quotes = get_quotes(tuple(lv))
+        lv_quotes = quotes if quotes is not None else get_quotes(tuple(lv))
         for sym in lv:
             quote_button(sym, lv_quotes.get(sym), key_prefix="lv")
 
     # --- Sektör endeksleri ---
     st.markdown('<div class="gf-side-sub">Hisse senedi sektörleri</div>', unsafe_allow_html=True)
-    sec_quotes = get_quotes(tuple(t for t, _ in SECTOR_INDICES))
+    sec_quotes = quotes if quotes is not None else get_quotes(tuple(t for t, _ in SECTOR_INDICES))
     rows = ""
     for tkr, name in SECTOR_INDICES:
         q = sec_quotes.get(tkr)
@@ -747,27 +901,27 @@ def render_side_lists():
         st.markdown('<div class="gf-empty">Sektör verisi alınamadı.</div>', unsafe_allow_html=True)
 
 
-def render_market_tabs():
+def render_market_tabs(quotes: dict | None = None):
     """Google Finance'in ABD/Avrupa/Asya sekmeleri karşılığı."""
     tabs = st.tabs(list(MARKET_TABS.keys()))
     for tab, (tab_name, items) in zip(tabs, MARKET_TABS.items()):
         with tab:
-            quotes = get_quotes(tuple(t for t, _ in items))
-            if not quotes:
+            tab_quotes = quotes if quotes is not None else get_quotes(tuple(t for t, _ in items))
+            if not any(t in tab_quotes for t, _ in items):
                 st.markdown('<div class="gf-empty">Veri alınamadı.</div>', unsafe_allow_html=True)
                 continue
             html = '<div class="gf-cards">'
             for tkr, name in items:
-                q = quotes.get(tkr)
+                q = tab_quotes.get(tkr)
                 if q:
                     html += market_card_html(name, q)
             html += '</div>'
             st.markdown(html, unsafe_allow_html=True)
 
 
-def render_movers():
+def render_movers(quotes: dict | None = None):
     """Yükselen / düşen hisseler (Google'ın 'En çok yükselenler' bölümü)."""
-    movers = get_market_movers()
+    movers = get_market_movers(quotes)
     if movers.empty:
         st.markdown('<div class="gf-empty">Hisse verisi alınamadı.</div>', unsafe_allow_html=True)
         return
@@ -800,6 +954,18 @@ def render_movers():
         )
 
 
+def safe_link(url: str) -> str:
+    """
+    Yalnızca http/https bağlantılarına izin verir.
+    Streamlit'in unsafe_allow_html yolu URL şemasını temizlemiyor; html_escape
+    attribute'tan çıkışı engelliyor ama "javascript:" gibi bir şemayı olduğu
+    gibi geçiriyor. RSS gibi dış kaynaklardan gelen bağlantılar için gerekli.
+    """
+    if isinstance(url, str) and url.strip().lower().startswith(("http://", "https://")):
+        return url.strip()
+    return "#"
+
+
 def render_news(limit: int = 12):
     news = get_bloomberg_news()
     if not news:
@@ -809,7 +975,7 @@ def render_news(limit: int = 12):
     for item in news[:limit]:
         html += (
             f'<div class="gf-news">'
-            f'<a href="{html_escape(item["link"], quote=True)}" target="_blank" rel="noopener">'
+            f'<a href="{html_escape(safe_link(item["link"]), quote=True)}" target="_blank" rel="noopener">'
             f'{html_escape(item["title"])}</a>'
             f'<div class="gf-news-time">Bloomberg HT · {html_escape(item["published"][5:16])}</div></div>'
         )
@@ -1052,6 +1218,68 @@ def detect_symbols(text: str, exclude: str | None = None) -> list:
     return out
 
 
+# --- Gemini kullanım limitleri ---
+# Tek bir API anahtarı tüm oturumlarca paylaşıldığı için sayaçlar süreç geneli
+# tutulur ve thread-safe'tir. Uygulama yeniden başlarsa sayaçlar sıfırlanır.
+GEMINI_RATE_LIMIT = 10          # kayan pencerede en fazla istek
+GEMINI_RATE_WINDOW = 60         # pencere (saniye)
+GEMINI_DAILY_LIMIT = 200        # gün başına en fazla istek (TR saatiyle sıfırlanır)
+
+_gemini_lock = threading.Lock()
+_gemini_usage = {"times": deque(), "day": None, "count": 0}
+
+
+def _gemini_prune(now: float, today: str):
+    """Kayan pencereden eskiyen istekleri ve dün kalan günlük sayacı temizler."""
+    times = _gemini_usage["times"]
+    while times and now - times[0] >= GEMINI_RATE_WINDOW:
+        times.popleft()
+    if _gemini_usage["day"] != today:
+        _gemini_usage["day"] = today
+        _gemini_usage["count"] = 0
+
+
+def gemini_usage() -> dict:
+    """Kalan hakları döndürür (arayüzde göstermek için)."""
+    now = time.monotonic()
+    today = dl.today_istanbul().isoformat()
+    with _gemini_lock:
+        _gemini_prune(now, today)
+        return {
+            "minute_left": max(0, GEMINI_RATE_LIMIT - len(_gemini_usage["times"])),
+            "daily_left": max(0, GEMINI_DAILY_LIMIT - _gemini_usage["count"]),
+        }
+
+
+def _gemini_acquire() -> tuple[bool, str]:
+    """
+    Limit içindeyse isteği kaydeder ve (True, "") döner.
+    Aşıldıysa (False, kullanıcıya gösterilecek mesaj) döner.
+    """
+    now = time.monotonic()
+    today = dl.today_istanbul().isoformat()
+    with _gemini_lock:
+        _gemini_prune(now, today)
+
+        if _gemini_usage["count"] >= GEMINI_DAILY_LIMIT:
+            return False, (
+                f"Günlük Gemini limiti doldu ({GEMINI_DAILY_LIMIT} soru). "
+                "Türkiye saatiyle gece yarısı sıfırlanır."
+            )
+
+        times = _gemini_usage["times"]
+        if len(times) >= GEMINI_RATE_LIMIT:
+            wait = int(GEMINI_RATE_WINDOW - (now - times[0])) + 1
+            return False, (
+                f"Çok hızlı soru soruyorsun (dakikada en fazla {GEMINI_RATE_LIMIT}). "
+                f"{wait} saniye sonra tekrar dene."
+            )
+
+        times.append(now)
+        _gemini_usage["count"] += 1
+        return True, ""
+
+
 def get_gemini_key() -> str:
     key = st.session_state.get("gemini_key", "") or os.environ.get("GEMINI_API_KEY", "")
     if not key:
@@ -1067,6 +1295,10 @@ def ask_gemini(history: list, context_text: str):
     key = get_gemini_key()
     if not key:
         return None, "Gemini API anahtarı tanımlı değil."
+
+    allowed, limit_msg = _gemini_acquire()
+    if not allowed:
+        return None, limit_msg
 
     system_prompt = AI_SYSTEM_PROMPT + "\n\nGüncel teknik veriler:\n" + context_text
 
@@ -1211,9 +1443,21 @@ def render_ai_panel():
         send_to_assistant(symbol, prompt)
         st.rerun()
 
+    usage = gemini_usage()
+    if usage["daily_left"] <= 0:
+        kalan = "Günlük soru hakkı doldu (gece yarısı sıfırlanır)."
+    elif usage["minute_left"] <= 0:
+        kalan = "Dakikalık limit doldu, birazdan tekrar dene."
+    elif usage["daily_left"] <= 20:
+        kalan = f"Bugün kalan soru hakkı: {usage['daily_left']}"
+    else:
+        kalan = ""
+
     st.markdown(
         '<div class="gf-source" style="padding:6px 2px;">Başka bir hisseyi sorarsan '
-        'onun teknik verisini de getiririm. Yatırım tavsiyesi değildir.</div>',
+        'onun teknik verisini de getiririm. Yatırım tavsiyesi değildir.'
+        + (f'<br><b>{html_escape(kalan)}</b>' if kalan else '')
+        + '</div>',
         unsafe_allow_html=True,
     )
     if history and st.button("Sohbeti temizle", key=f"clear_{symbol}", use_container_width=True):
@@ -1640,18 +1884,23 @@ def render_home_forecast_entry():
 def render_home():
     render_topbar()
     maybe_show_popup()
-    render_ticker_strip()
+
+    # Ana sayfanın tüm bölümlerinin verisi tek istek turunda alınır.
+    extra = tuple(st.session_state.watchlist) + tuple(st.session_state.last_viewed[:6])
+    quotes = prefetch_home_quotes(extra)
+
+    render_ticker_strip(quotes)
 
     col_side, col_main, col_right = st.columns([1.25, 3.3, 1.45], gap="medium")
 
     with col_side:
-        render_side_lists()
+        render_side_lists(quotes)
 
     with col_main:
-        render_market_tabs()
+        render_market_tabs(quotes)
         st.markdown('<hr class="gf-divider">', unsafe_allow_html=True)
         st.markdown("#### Piyasa özeti")
-        render_movers()
+        render_movers(quotes)
         st.markdown('<hr class="gf-divider">', unsafe_allow_html=True)
         st.markdown("#### Bugün piyasalarda neler oluyor?")
         render_news(10)
@@ -2425,37 +2674,74 @@ def run_daily_capture(symbols: list[str], overwrite: bool = False, progress_cb=N
     }
 
 
+# Otomatik günlük kayıt, UI'ı bloklamaması için arka plan thread'inde çalışır.
+# Durum session değil, süreç genelinde tutulur ki aynı gün birden fazla kez tetiklenmesin.
+_auto_capture_lock = threading.Lock()
+_auto_capture_state = {"date": None, "thread": None, "result": None}
+
+
+def auto_capture_running() -> bool:
+    """Arka plandaki otomatik kayıt işi hâlâ sürüyor mu?"""
+    t = _auto_capture_state.get("thread")
+    return bool(t is not None and t.is_alive())
+
+
+def pop_auto_capture_result():
+    """Tamamlanmış otomatik kayıt sonucunu bir kez döndürür (sonra temizler)."""
+    with _auto_capture_lock:
+        result = _auto_capture_state.get("result")
+        _auto_capture_state["result"] = None
+    return result
+
+
 def maybe_run_auto_capture():
     """
-    Türkiye saati 18:30'dan sonraysa ve bugün için kayıt yoksa otomatik olarak
-    günlük kayıt yapar. Bu fonksiyon her sayfa render'ında çağrılır; aynı session
-    içinde tekrar çalışmasın diye st.session_state.last_auto_check ile sınırlanır.
+    Türkiye saati 18:30'dan sonraysa ve bugün için kayıt yoksa günlük kaydı
+    ARKA PLANDA başlatır. Sayfa render'ını bloklamaz, dolayısıyla kullanıcı
+    dakikalarca "çalışıyor" durumunda bekleyen bir arayüz görmez.
+    Aynı gün içinde yalnızca bir kez tetiklenir.
     """
     try:
         now = dl.now_istanbul()
         today_str = now.date().isoformat()
 
-        last_check = st.session_state.get('last_auto_check_date')
-        if last_check == today_str:
-            return None
-
         # 18:30 ve sonrası
         if (now.hour, now.minute) < (18, 30):
             return None
 
-        # Bugün için zaten kayıt varsa çalıştırma
-        if dl.has_record_for_today():
-            st.session_state.last_auto_check_date = today_str
-            return None
+        with _auto_capture_lock:
+            if _auto_capture_state["date"] == today_str:
+                return None
+            if auto_capture_running():
+                return None
 
-        symbols = dl.get_target_symbols()
-        if not symbols:
-            return None
+            # Bugün için zaten kayıt varsa çalıştırma
+            if dl.has_record_for_today():
+                _auto_capture_state["date"] = today_str
+                return None
 
-        result = run_daily_capture(symbols, overwrite=False)
-        st.session_state.last_auto_check_date = today_str
-        st.session_state.last_auto_capture_result = result
-        return result
+            symbols = dl.get_target_symbols()
+            if not symbols:
+                return None
+
+            def _worker():
+                try:
+                    res = run_daily_capture(symbols, overwrite=False)
+                except Exception:
+                    res = None
+                with _auto_capture_lock:
+                    _auto_capture_state["date"] = today_str
+                    _auto_capture_state["result"] = res
+
+            thread = threading.Thread(target=_worker, name="auto-daily-capture", daemon=True)
+            # Cache/oturum bağlamının thread içinde de geçerli olması için
+            ctx = get_script_run_ctx()
+            if ctx is not None:
+                add_script_run_ctx(thread, ctx)
+            _auto_capture_state["thread"] = thread
+            thread.start()
+
+        return None
     except Exception:
         return None
 
@@ -2471,8 +2757,11 @@ def render_daily_log():
         # Sayfa açıkken her 5 dakikada bir tetikle (otomatik 18:30 kontrolü için)
         st_autorefresh(interval=300_000, limit=None, key="daily_log_autorefresh")
 
-    # Otomatik 18:30 kontrolü
-    auto_result = maybe_run_auto_capture()
+    # Otomatik 18:30 kontrolü (arka planda çalışır, sayfayı bekletmez)
+    maybe_run_auto_capture()
+    if auto_capture_running():
+        st.caption("⏳ Otomatik günlük kayıt arka planda hazırlanıyor...")
+    auto_result = pop_auto_capture_result()
     if auto_result and auto_result.get('inserted'):
         st.success(
             f"⏰ Otomatik kayıt yapıldı (18:30 sonrası): "

@@ -5,3 +5,10 @@ backgroundColor = "#131314"
 secondaryBackgroundColor = "#1e1f20"
 textColor = "#e3e3e3"
 font = "sans serif"
+
+[client]
+# Sağ üstteki hamburger menü / Deploy butonu gibi Streamlit araç çubuğunu gizle
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false

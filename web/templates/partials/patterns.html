@@ -47,11 +47,15 @@
       </div>
 
       <div style="display:flex;gap:10px;align-items:center;margin-top:16px;flex-wrap:wrap;">
+        {# Modalı onclick ile kapatmak butonu DOM'dan siliyor ve htmx isteği
+           iptal ediyordu; kapatma isteğin ARDINDAN yapılıyor. #}
         <button class="primary"
                 hx-post="/p/asistan/{{ symbol }}"
                 hx-vals='{"soru": "Grafikte bulunan formasyonları yorumla: ne anlama geliyorlar, hangi seviyeler kritik?", "formasyon": "{{ period }}"}'
                 hx-target="#ai-panel" hx-swap="outerHTML"
-                onclick="closeModal()">Asistana yorumlat</button>
+                hx-disabled-elt="this"
+                hx-on::after-request="closeModal()">Asistana yorumlat</button>
+        <span class="htmx-indicator gf-source"><span class="gf-spinner"></span> asistan yorumluyor…</span>
         <span class="gf-source">Model mAP@0.5 = 0,614 — tespitler kesinlik değil, işaret.</span>
       </div>
       {% else %}

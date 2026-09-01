@@ -27,3 +27,8 @@ deploy/
 # Kişisel takip verisi ve yerel veritabanı — sunucuda elle tutulur
 Başlıksız e-tablo.xlsx
 /data/
+
+# Vertex AI servis hesabı anahtarı — asla repoya girmemeli
+vertex.json
+*-service-account*.json
+borsabot-chat-bot-*.json

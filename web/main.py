@@ -314,9 +314,10 @@ def assistant(request: Request, symbol: str, soru: str = Form(...),
             found = pat.as_context(sym, pat.detect(sym, formasyon, "1d"))
             if found:
                 context_text += "\n\n" + found
-        answer, err, sources = m.ask_llm(history, context_text)
+        answer, err, extra = m.ask_llm(history, context_text)
         history.append({"role": "assistant", "content": answer or f"⚠️ {err}",
-                        "sources": sources})
+                        "sources": extra.get("sources", []),
+                        "queries": extra.get("queries", [])})
 
     return _render(request, "partials/ai_panel.html", {"ai": _ai_context(state, sym)}, sid)
 
@@ -421,6 +422,8 @@ def daily_log_page(request: Request, tarih: str = "", hisse: str = "", ara: str 
 
     return _render(request, "daily_log.html", {
         "symbols": symbols, "now": now, "today": now.date().isoformat(),
+        "excel_missing": not dl.DEFAULT_EXCEL_PATH.exists(),
+        "excel_name": dl.DEFAULT_EXCEL_PATH.name,
         "weeks": _calendar_weeks(now.date(), per_day, m.BACKFILL_DAYS),
         "per_day": per_day,
         "rows": table.to_dict("records") if has_rows and not table.empty else [],

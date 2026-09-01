@@ -988,12 +988,12 @@ def _ask_vertex(system_prompt: str, history: list) -> tuple:
     location = setting("VERTEX_LOCATION", "us-central1")
     model = setting("VERTEX_MODEL", "gemini-2.5-flash")
     if not project:
-        return None, "Vertex AI için VERTEX_PROJECT ayarlanmamış.", []
+        return None, "Vertex AI için VERTEX_PROJECT ayarlanmamış.", {"sources": [], "queries": []}
 
     try:
         token = _vertex_token()
     except Exception as exc:
-        return None, f"Vertex kimlik doğrulaması başarısız: {exc}", []
+        return None, f"Vertex kimlik doğrulaması başarısız: {exc}", {"sources": [], "queries": []}
 
     host = "aiplatform.googleapis.com" if location == "global" else f"{location}-aiplatform.googleapis.com"
     url = (f"https://{host}/v1/projects/{project}/locations/{location}"
@@ -1015,23 +1015,28 @@ def _ask_vertex(system_prompt: str, history: list) -> tuple:
                                         "Content-Type": "application/json"},
                           json=payload, timeout=45)
     except Exception as exc:
-        return None, f"Bağlantı hatası: {exc}", []
+        return None, f"Bağlantı hatası: {exc}", {"sources": [], "queries": []}
 
     if r.status_code != 200:
         try:
             detail = r.json().get("error", {}).get("message", "")[:200]
         except Exception:
             detail = r.text[:200]
-        return None, f"Vertex AI hatası ({r.status_code}): {detail}", []
+        return None, f"Vertex AI hatası ({r.status_code}): {detail}", {"sources": [], "queries": []}
 
     try:
         candidate = r.json()["candidates"][0]
         parts = candidate["content"]["parts"]
         text = "".join(p.get("text", "") for p in parts).strip()
+        meta = candidate.get("groundingMetadata") or {}
         sources = _grounding_sources(candidate)
-        return (text or None), (None if text else "Boş yanıt döndü."), sources
+        # Modelin gerçekten hangi sorguları arattığı; arayüzde gösteriliyor.
+        queries = [q for q in (meta.get("webSearchQueries") or []) if q][:4]
+        return (text or None), (None if text else "Boş yanıt döndü."), {
+            "sources": sources, "queries": queries,
+        }
     except Exception:
-        return None, "Yanıt çözümlenemedi.", []
+        return None, "Yanıt çözümlenemedi.", {"sources": [], "queries": []}
 
 
 def _grounding_sources(candidate: dict) -> list:
@@ -1090,17 +1095,18 @@ def ask_llm(history: list, context_text: str):
     provider = llm_provider()
     if not provider:
         return None, ("Asistan için sağlayıcı tanımlı değil. secrets.toml içine "
-                      "VERTEX_PROJECT (Vertex AI) ya da LLM_API_KEY (Groq/OpenAI) ekle."), []
+                      "VERTEX_PROJECT (Vertex AI) ya da LLM_API_KEY (Groq/OpenAI) ekle."), \
+               {"sources": [], "queries": []}
 
     allowed, limit_msg = _gemini_acquire()
     if not allowed:
-        return None, limit_msg, []
+        return None, limit_msg, {"sources": [], "queries": []}
 
     system_prompt = AI_SYSTEM_PROMPT + "\n\nGüncel teknik veriler:\n" + context_text
 
-    sources = []
+    extra = {"sources": [], "queries": []}
     if provider == "vertex":
-        answer, err, sources = _ask_vertex(system_prompt, history)
+        answer, err, extra = _ask_vertex(system_prompt, history)
     elif provider == "openai":
         answer, err = _ask_openai_compatible(system_prompt, history)
     else:
@@ -1113,11 +1119,11 @@ def ask_llm(history: list, context_text: str):
             if _gemini_usage["times"]:
                 _gemini_usage["times"].pop()
             _gemini_usage["count"] = max(0, _gemini_usage["count"] - 1)
-    return answer, err, sources
+    return answer, err, extra
 
 
 def ask_gemini(history: list, context_text: str):
-    """Eski ad; kaynakları atarak (cevap, hata) döndürür."""
+    """Eski ad; ek bilgileri atarak (cevap, hata) döndürür."""
     answer, err, _ = ask_llm(history, context_text)
     return answer, err
 

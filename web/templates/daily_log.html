@@ -9,6 +9,14 @@
   </form>
 </div>
 
+{% if excel_missing %}
+<div class="gf-flash err">
+  <b>Takip listesi dosyası bulunamadı</b> — <code>{{ excel_name }}</code> proje kökünde yok.
+  Bu yüzden yalnızca yedek listedeki {{ symbols|length }} hisse kaydediliyor.
+  Dosyayı sunucuya kopyalayıp "Şimdi güncelle"ye bas.
+</div>
+{% endif %}
+
 {% if backfill.running %}
 <div class="gf-flash info"><span class="gf-spinner"></span>
   Son {{ 30 }} günün verisi arka planda tamamlanıyor{% if backfill.progress %} — {{ backfill.progress }}{% endif %}.

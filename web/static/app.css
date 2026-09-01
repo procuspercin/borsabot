@@ -19,7 +19,7 @@ html, body {
     font-family: 'Google Sans', 'Roboto', -apple-system, sans-serif;
     font-size: 15px; line-height: 1.5;
 }
-.page { max-width: 1600px; margin: 0 auto; padding: 14px 24px 48px; }
+.page { max-width: 1600px; margin: 0 auto; padding: 14px 24px 48px; overflow-x: hidden; }
 h1, h2, h3, h4 { color: var(--gf-text); font-weight: 500; letter-spacing: 0; }
 h4 { font-size: 1.05rem; margin: 18px 0 10px; }
 a { color: inherit; }
@@ -27,11 +27,12 @@ a { color: inherit; }
 /* Ana yerleşim: sol liste | orta içerik | sağ asistan */
 .gf-layout { display: grid; grid-template-columns: 240px minmax(0, 1fr) 320px; gap: 24px; align-items: start; }
 @media (max-width: 1400px) { .gf-layout { grid-template-columns: 220px minmax(0, 1fr); } }
-@media (max-width: 1000px) { .gf-layout { grid-template-columns: 1fr; } }
+@media (max-width: 1000px) { .gf-layout { grid-template-columns: minmax(0, 1fr); } }
+
 
 /* Detay sayfası: içerik + asistan */
 .gf-layout-2 { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; align-items: start; }
-@media (max-width: 1100px) { .gf-layout-2 { grid-template-columns: 1fr; } }
+@media (max-width: 1100px) { .gf-layout-2 { grid-template-columns: minmax(0, 1fr); } }
 
 /* Asistan sağ sütunda kendi içinde kayar; sayfa uzayınca üstte kalır */
 #ai-panel {
@@ -309,7 +310,12 @@ select[multiple] { background-image: none; padding-right: 16px; }
     background: var(--gf-surface); border: 1px solid var(--gf-border);
     border-radius: 18px; padding: 0; overflow: hidden;
 }
-@media (max-width: 1400px) { #ai-panel { position: static; grid-column: 1 / -1; max-height: 620px; } }
+/* Uzun cevap sayfayı uzatmasın: panelin yüksekliği sabit, mesajlar kendi
+   içinde kayar. Aksi halde tek uzun yanıt ana sayfayı metrelerce uzatıyordu. */
+#ai-panel { height: clamp(420px, calc(100vh - 28px), 760px); }
+@media (max-width: 1400px) {
+    #ai-panel { position: static; grid-column: 1 / -1; height: 520px; }
+}
 
 .gf-ai-head {
     display: flex; align-items: center; gap: 11px;
@@ -368,15 +374,17 @@ select[multiple] { background-image: none; padding-right: 16px; }
 }
 .gf-bubble-src a:hover { text-decoration: underline; }
 
-/* Yazıyor animasyonu */
-.gf-typing { display: none; gap: 4px; align-items: center; width: fit-content; }
-.htmx-request .gf-typing, .gf-typing.htmx-request { display: flex; }
-.gf-typing span {
+/* Yazıyor balonu: noktalar + durum yazısı */
+.gf-thinking { display: none; align-items: center; gap: 9px; width: fit-content; }
+.htmx-request .gf-thinking, .gf-thinking.htmx-request { display: flex; }
+.gf-thinking-text { font-size: .78rem; color: var(--gf-text-dim); }
+.gf-dots { display: inline-flex; gap: 4px; align-items: center; }
+.gf-dots span {
     width: 6px; height: 6px; border-radius: 50%; background: var(--gf-text-dim);
     animation: gf-blink 1.2s infinite both;
 }
-.gf-typing span:nth-child(2) { animation-delay: .2s; }
-.gf-typing span:nth-child(3) { animation-delay: .4s; }
+.gf-dots span:nth-child(2) { animation-delay: .2s; }
+.gf-dots span:nth-child(3) { animation-delay: .4s; }
 @keyframes gf-blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
 
 .gf-ai-form {
@@ -400,4 +408,74 @@ select[multiple] { background-image: none; padding-right: 16px; }
 .gf-ai-quota {
     flex: none; padding: 8px 16px 12px; font-size: .73rem; color: var(--gf-text-dim);
     border-top: 1px solid var(--gf-border);
+}
+
+
+/* Yanıtın hangi sorgularla arandığı — gerçek groundingMetadata verisi */
+.gf-bubble-search {
+    font-size: .72rem; color: var(--gf-text-dim); margin-bottom: 7px;
+    padding-bottom: 6px; border-bottom: 1px solid var(--gf-border);
+}
+.gf-bubble-text { overflow-wrap: anywhere; }
+
+/* ================= Mobil ================= */
+@media (max-width: 720px) {
+    .page { padding: 10px 14px 32px; }
+    body { font-size: 14px; }
+
+    .gf-topbar { flex-wrap: wrap; gap: 10px; padding-bottom: 10px; }
+    .gf-logo { font-size: 1.25rem; }
+    /* Satır içi style="flex:1" bu kuralı ezdiği için !important şart */
+    .gf-topbar form { order: 3; flex: 1 0 100% !important; max-width: none !important; }
+    .gf-topbar nav { margin-left: auto; gap: 6px; }
+    .gf-topbar nav .btn { padding: .38rem .7rem; font-size: .78rem; }
+
+    /* Şerit ve kartlar yatay kaydırılsın, sıkışıp okunmaz olmasın */
+    .gf-cards { flex-wrap: nowrap; overflow-x: auto; scroll-snap-type: x mandatory;
+                -webkit-overflow-scrolling: touch; padding-bottom: 6px; }
+    .gf-cards > * { scroll-snap-align: start; }
+    .gf-card { min-width: 172px; }
+
+    /* minmax(0,1fr): düz "1fr" min-width:auto demek ve sütun içeriğin altına
+       inemiyor; piyasa kartları sütunu 1200 px'e şişirip tüm sayfayı taşırıyordu. */
+    .gf-layout, .gf-layout-2 { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+    .gf-layout > *, .gf-layout-2 > * { min-width: 0; }
+    #ai-panel { height: 480px; }
+
+    .gf-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .gf-tab { padding: 9px 12px; font-size: .85rem; white-space: nowrap; }
+
+    /* Piyasa özeti tek sütuna insin */
+    .gf-layout main > div[style*="grid-template-columns:1fr 1fr"],
+    .gf-layout main > div[style*="grid-template-columns: 1fr 1fr"] {
+        grid-template-columns: 1fr !important;
+    }
+
+    .gf-news-grid { grid-template-columns: 1fr; }
+    .gf-table { font-size: .8rem; }
+    .gf-table th, .gf-table td { padding: 7px 8px; }
+
+    /* Detay sayfasındaki kontroller alt alta */
+    form[style*="grid-template-columns:1fr 1fr 2fr"],
+    form[style*="grid-template-columns: 1fr 1fr 2fr"] {
+        grid-template-columns: 1fr !important;
+    }
+
+    .gf-modal { padding: 16px; border-radius: 12px; max-height: 92vh; }
+    .gf-modal-bg { padding: 10px; }
+
+    /* Takvim: gün kutuları küçülsün ama okunur kalsın */
+    .gf-cal-cell { min-height: 56px; padding: 6px 7px; border-radius: 8px; }
+    .gf-cal-day { font-size: .82rem; }
+    .gf-cal-count, .gf-cal-note { font-size: .6rem; }
+    .gf-cal-row { gap: 4px; }
+    .gf-cal-head { gap: 18px; flex-wrap: wrap; }
+
+    .gf-toast { left: 14px; right: 14px; transform: none; text-align: center; border-radius: 14px; }
+    .gf-toast.show { transform: none; }
+}
+
+@media (max-width: 420px) {
+    .gf-cal-note { display: none; }      /* dar ekranda gün numarası yeter */
+    .gf-topbar nav .btn { padding: .34rem .6rem; font-size: .72rem; }
 }

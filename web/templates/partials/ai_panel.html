@@ -30,7 +30,8 @@
         {% for q in ai.quick %}
         <button hx-post="/p/asistan/{{ ai.symbol }}" hx-vals='{"soru": {{ q | tojson }}}'
                 hx-target="#ai-panel" hx-swap="outerHTML"
-                hx-disabled-elt="this">{{ q }}</button>
+                hx-indicator="#ai-thinking" hx-disabled-elt="this"
+                onclick="aiPending(null, this.textContent)">{{ q }}</button>
         {% endfor %}
       </div>
     {% else %}
@@ -39,6 +40,9 @@
           <div class="gf-bubble user">{{ msg.content }}</div>
         {% else %}
           <div class="gf-bubble bot">
+            {% if msg.queries %}
+            <div class="gf-bubble-search">🔎 Arandı: {{ msg.queries | join(' · ') }}</div>
+            {% endif %}
             <div class="gf-bubble-text">{{ msg.content }}</div>
             {% if msg.sources %}
             <details class="gf-bubble-src">
@@ -53,15 +57,21 @@
       {% endfor %}
     {% endif %}
 
-    <div class="gf-bubble bot htmx-indicator gf-typing">
-      <span></span><span></span><span></span>
+    <div class="gf-bubble bot htmx-indicator gf-thinking" id="ai-thinking">
+      <span class="gf-dots"><span></span><span></span><span></span></span>
+      <span class="gf-thinking-text">düşünüyor…</span>
     </div>
   </div>
 
   <form class="gf-ai-form" hx-post="/p/asistan/{{ ai.symbol }}"
         hx-target="#ai-panel" hx-swap="outerHTML"
         hx-disabled-elt="find button, find textarea"
-        hx-indicator="#ai-panel .gf-typing">
+        hx-indicator="#ai-thinking"
+        {# Kutuyu onsubmit'te temizlemek htmx'in form verisini okumasından ÖNCE
+           çalışıyor ve boş "soru" gönderiliyordu. before-send, parametreler
+           toplandıktan sonra tetiklenir; temizlemenin güvenli yeri burası. #}
+        hx-on::before-send="this.querySelector('textarea').value=''; this.querySelector('textarea').style.height='auto'"
+        onsubmit="aiPending(this)">
     <textarea name="soru" rows="1" required autocomplete="off"
               placeholder="{{ ai.short }} hakkında sor…"
               oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px'"
@@ -80,9 +90,53 @@
 </section>
 
 <script>
-  // Yeni mesaj gelince sohbetin sonuna kaydır
-  (function () {
+(function () {
+  const body = document.getElementById('ai-body');
+  if (body) body.scrollTop = body.scrollHeight;
+})();
+
+// Gönderince mesajı ANINDA baloncuk olarak göster; sunucu yanıtı beklenirken
+// kullanıcı ne yazdığını görsün ve panel boş durmasın.
+function aiPending(form, presetText) {
+  const body = document.getElementById('ai-body');
+  if (!body) return;
+  const area = form ? form.querySelector('textarea') : null;
+  const text = presetText || (area ? area.value.trim() : '');
+  if (!text) return;
+
+  const hello = body.querySelector('.gf-ai-hello');
+  if (hello) hello.remove();
+  const chips = body.querySelector('.gf-ai-chips');
+  if (chips) chips.remove();
+
+  const bubble = document.createElement('div');
+  bubble.className = 'gf-bubble user';
+  bubble.textContent = text;
+  const thinking = document.getElementById('ai-thinking');
+  body.insertBefore(bubble, thinking);
+  body.scrollTop = body.scrollHeight;
+
+  startThinking();
+}
+
+// Durum yazısı: modelin ne yaptığını gerçek zamanlı bilemiyoruz (tek istek,
+// akış yok), o yüzden iddialı bir şey ("Google'a bakılıyor") yazmıyoruz.
+// Yanıt döndükten sonra ARANAN SORGULAR balonun üstünde gerçek veriyle çıkıyor.
+let thinkTimer;
+function startThinking() {
+  const el = document.querySelector('#ai-thinking .gf-thinking-text');
+  if (!el) return;
+  const steps = ['düşünüyor…', 'teknik veriler okunuyor…',
+                 'kaynaklar taranıyor…', 'yanıt yazılıyor…'];
+  let i = 0;
+  el.textContent = steps[0];
+  clearInterval(thinkTimer);
+  thinkTimer = setInterval(() => {
+    i = Math.min(i + 1, steps.length - 1);
+    el.textContent = steps[i];
     const body = document.getElementById('ai-body');
     if (body) body.scrollTop = body.scrollHeight;
-  })();
+  }, 3500);
+}
+document.body.addEventListener('htmx:afterSwap', () => clearInterval(thinkTimer));
 </script>

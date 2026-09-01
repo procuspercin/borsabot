@@ -368,14 +368,50 @@ def get_market_movers(quotes: dict | None = None, limit: int = MOVERS_LIMIT) -> 
 # Haber kaynakları. Bloomberg HT'nin RSS'i zaman zaman günlerce güncellenmiyor,
 # bu yüzden akış birden çok kaynaktan toplanıp tarihe göre sıralanıyor.
 NEWS_FEEDS = [
-    ("AA Ekonomi", "https://www.aa.com.tr/tr/rss/default?cat=ekonomi"),
-    ("Dünya", "https://www.dunya.com/rss"),
-    ("Ekonomim", "https://www.ekonomim.com/rss"),
+    # Yalnızca finans/ekonomi üreten kaynaklar. Dünya'nın kategori beslemeleri
+    # 404 döndüğü için genel akışı kullanmak gerekiyordu ve emniyet ataması,
+    # YKS, futbol gibi haberler sızıyordu — çıkarıldı. Hürriyet Ekonomi haber
+    # değil "Proforma Fatura Nedir" tarzı SEO içeriği yayınlıyor — çıkarıldı.
+    # Ekonomim'in genel akışında da arkeoloji/yaşam içeriği vardı — çıkarıldı.
+    # Kalan ikisi yalnızca finans üretiyor ve günde 130+ haberle fazlasıyla yetiyor.
     ("Foreks", "https://www.foreks.com/rss"),
-    ("TRT Haber", "https://www.trthaber.com/ekonomi_articles.rss"),
-    ("Hürriyet", "https://www.hurriyet.com.tr/rss/ekonomi"),
+    ("AA Ekonomi", "https://www.aa.com.tr/tr/rss/default?cat=ekonomi"),
     ("Bloomberg HT", "https://www.bloomberght.com/rss"),
 ]
+
+# Kaynak temiz olsa da arada konu dışı haber sızabiliyor; son bir süzgeç.
+#
+# Türkçe eklemeli bir dil: "müdür" kelimesi haberde "müdürü" olarak geçiyor ve
+# kalıbın sonuna \b koymak eşleşmeyi bozuyor. Bu yüzden kalıplar KÖK olarak
+# yazılıyor, yalnızca başta sınır aranıyor.
+#
+# Liste bilerek dar tutuldu: gerçek bir finans haberini yanlışlıkla elemek,
+# birkaç konu dışı haberin geçmesinden daha kötü.
+_NEWS_BLOCK = re.compile(
+    r"(?iu)\b(?:"
+    # spor
+    r"futbol|basketbol|voleybol|derbi|şampiyon|teknik\s+direktör|"
+    r"galatasaray|fenerbahçe|beşiktaş|trabzonspor|milli\s+tak[ıi]m|"
+    r"gol(?:ü|ler)|forma\s+giy|"
+    # eğitim / sınav
+    r"yks|lgs|kpss|ösym|tercih\s+robot|sınav\s+sonuç|"
+    # asayiş / atama / adliye
+    r"emniyet\s+müdür|valilik\s+atama|gözalt|tutukla|cinayet|"
+    r"kaza\s+yap|yaraland|hayat[ıi]n[ıi]\s+kaybet|"
+    # magazin / yaşam
+    r"magazin|dizi\s+setinde|evlend|boşand|nişanland|"
+    # hava / sağlık
+    r"hava\s+durum|meteoroloji|kar\s+yağ|sağanak|grip\s+salgın"
+    r")"
+    # SEO içeriği: "... Nedir", "... Nasıl Yapılır" gibi kalıcı sayfalar
+    r"|\b(?:nedir|nas[ıi]l\s+(?:yap[ıi]l[ıi]r|kesilir|sorgulan[ıi]r|düzenlenir|hesaplan[ıi]r))\b"
+)
+
+
+def _is_finance_news(title: str) -> bool:
+    return not _NEWS_BLOCK.search(title or "")
+
+
 _NEWS_HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
 _TR_MONTHS_SHORT = {
     1: "Oca", 2: "Şub", 3: "Mar", 4: "Nis", 5: "May", 6: "Haz",
@@ -434,8 +470,8 @@ def _relative_tr(when) -> str:
 @ttl_cache(300)
 def get_news(limit: int = 60) -> list:
     """
-    Tüm kaynakları paralel çeker, tarihe göre yeniden eskiye sıralar ve
-    aynı haberin farklı kaynaklardan gelen kopyalarını ayıklar.
+    Tüm kaynakları paralel çeker, konu dışı başlıkları eler, tarihe göre
+    yeniden eskiye sıralar ve aynı haberin kopyalarını ayıklar.
     """
     with ThreadPoolExecutor(max_workers=len(NEWS_FEEDS)) as ex:
         batches = list(ex.map(lambda f: _fetch_feed(*f), NEWS_FEEDS))
@@ -445,6 +481,8 @@ def get_news(limit: int = 60) -> list:
 
     seen, out = set(), []
     for item in items:
+        if not _is_finance_news(item["title"]):
+            continue
         key = re.sub(r"\W+", "", item["title"].lower())[:70]
         if not key or key in seen:
             continue

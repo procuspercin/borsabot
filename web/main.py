@@ -18,7 +18,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Stre
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from core import charts, daily_log as dl, market as m
+from core import charts, daily_log as dl, market as m, patterns as pat
 from web import session as sess
 
 BASE_DIR = m.PROJECT_ROOT / "web"
@@ -292,7 +292,8 @@ def _ai_context(state: dict, symbol: str) -> dict:
 
 
 @app.post("/p/asistan/{symbol}", response_class=HTMLResponse)
-def assistant(request: Request, symbol: str, soru: str = Form(...)):
+def assistant(request: Request, symbol: str, soru: str = Form(...),
+              formasyon: str = Form("")):
     sid, state = _session(request)
     sym = _normalize(symbol)
     history = sess.chat(state, sym)
@@ -307,10 +308,34 @@ def assistant(request: Request, symbol: str, soru: str = Form(...)):
             extra_ctx = m.get_analysis_context(extra)
             if extra_ctx:
                 context_text += "\n\n" + extra_ctx["text"]
-        answer, err = m.ask_llm(history, context_text)
-        history.append({"role": "assistant", "content": answer or f"⚠️ {err}"})
+        # Formasyon penceresinden gelen istekte tespitler bağlama eklenir
+        if formasyon and pat.available():
+            found = pat.as_context(sym, pat.detect(sym, formasyon, "1d"))
+            if found:
+                context_text += "\n\n" + found
+        answer, err, sources = m.ask_llm(history, context_text)
+        history.append({"role": "assistant", "content": answer or f"⚠️ {err}",
+                        "sources": sources})
 
     return _render(request, "partials/ai_panel.html", {"ai": _ai_context(state, sym)}, sid)
+
+
+# --------------------------------------------------------------------------- #
+# Formasyon tespiti
+# --------------------------------------------------------------------------- #
+
+@app.get("/p/formasyon/{symbol}", response_class=HTMLResponse)
+def patterns_modal(request: Request, symbol: str, period: str = "1y"):
+    sid, state = _session(request)
+    sym = _normalize(symbol)
+    result = pat.detect(sym, period, "1d") if pat.available() else {
+        "available": False, "detections": [], "image": None,
+        "error": "Formasyon modeli sunucuda kurulu değil.",
+    }
+    return _render(request, "partials/patterns.html", {
+        "symbol": sym, "short": sym.replace(".IS", ""),
+        "result": result, "period": period, "periods": ["6mo", "1y", "2y"],
+    }, sid)
 
 
 @app.post("/p/asistan/{symbol}/temizle", response_class=HTMLResponse)

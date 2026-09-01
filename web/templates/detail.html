@@ -78,7 +78,11 @@
   {% endfor %}
 </div>
 
-<div style="margin:16px 0;">
+<div style="margin:16px 0;display:flex;gap:10px;flex-wrap:wrap;">
+  <button hx-get="/p/formasyon/{{ symbol }}?period={{ period if period in ['6mo','1y','2y'] else '1y' }}"
+          hx-target="#modal" hx-indicator="#pattern-wait">🔍 Formasyon tara</button>
+  <span id="pattern-wait" class="htmx-indicator gf-source" style="align-self:center;">
+    <span class="gf-spinner"></span> taranıyor…</span>
   <a class="btn" href="/indir/{{ target }}.csv?period={{ period }}&interval={{ interval }}">CSV indir</a>
 </div>
 

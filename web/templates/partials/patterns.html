@@ -1,0 +1,63 @@
+<div class="gf-modal-bg" onclick="if (event.target === this) closeModal()">
+  <div class="gf-modal" style="max-width:1120px;">
+    <button class="gf-modal-close" onclick="closeModal()">✕</button>
+    <h3 style="margin-top:0;">Formasyon taraması — {{ short }}</h3>
+
+    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center;">
+      {% for p in periods %}
+      <button class="{{ 'primary' if p == period }}"
+              hx-get="/p/formasyon/{{ symbol }}?period={{ p }}" hx-target="#modal">{{ p }}</button>
+      {% endfor %}
+      <span class="htmx-indicator gf-source" style="margin-left:6px;">
+        <span class="gf-spinner"></span> taranıyor…</span>
+    </div>
+
+    {% if result.error %}
+      <div class="gf-flash err">{{ result.error }}</div>
+    {% else %}
+      <div class="gf-pattern-wrap">
+        <img src="{{ result.image }}" alt="{{ short }} mum grafiği" class="gf-pattern-img">
+        {% for d in result.detections %}
+        <div class="gf-pattern-box"
+             style="left:{{ d.box[0] / result.width * 100 }}%; top:{{ d.box[1] / result.height * 100 }}%;
+                    width:{{ (d.box[2] - d.box[0]) / result.width * 100 }}%;
+                    height:{{ (d.box[3] - d.box[1]) / result.height * 100 }}%;">
+          <span>{{ d.name_tr }} %{{ '%.0f'|format(d.confidence * 100) }}</span>
+        </div>
+        {% endfor %}
+      </div>
+
+      {% if result.detections %}
+      <div class="gf-table-wrap" style="margin-top:14px;">
+        <table class="gf-table">
+          <thead><tr><th>Formasyon</th><th>Klasik yorum</th><th>Güven</th>
+            <th>Aralık</th><th>Fiyat bandı</th></tr></thead>
+          <tbody>
+          {% for d in result.detections %}
+            <tr>
+              <td><b>{{ d.name_tr }}</b></td>
+              <td class="gf-source">{{ d.bias }}</td>
+              <td>%{{ '%.0f'|format(d.confidence * 100) }}</td>
+              <td>{{ d.start }} → {{ d.end }}</td>
+              <td>{{ fmt_price(d.low) }} – {{ fmt_price(d.high) }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div style="display:flex;gap:10px;align-items:center;margin-top:16px;flex-wrap:wrap;">
+        <button class="primary"
+                hx-post="/p/asistan/{{ symbol }}"
+                hx-vals='{"soru": "Grafikte bulunan formasyonları yorumla: ne anlama geliyorlar, hangi seviyeler kritik?", "formasyon": "{{ period }}"}'
+                hx-target="#ai-panel" hx-swap="outerHTML"
+                onclick="closeModal()">Asistana yorumlat</button>
+        <span class="gf-source">Model mAP@0.5 = 0,614 — tespitler kesinlik değil, işaret.</span>
+      </div>
+      {% else %}
+      <div class="gf-empty" style="margin-top:12px;">
+        Bu periyotta tanınan bir formasyon bulunamadı. Başka bir periyot deneyebilirsin.</div>
+      {% endif %}
+    {% endif %}
+  </div>
+</div>

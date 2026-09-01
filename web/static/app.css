@@ -282,3 +282,23 @@ select[multiple] { background-image: none; padding-right: 16px; }
 
 .gf-cal-note { font-size: .68rem; color: var(--gf-text-dim); margin-top: 4px; line-height: 1.25; }
 .gf-cal-cell.weekend { background: transparent; border-style: dashed; }
+
+
+/* ---------- Formasyon taraması ---------- */
+.gf-pattern-wrap { position: relative; display: inline-block; max-width: 100%; }
+.gf-pattern-img { display: block; width: 100%; height: auto; border-radius: 10px; }
+.gf-pattern-box {
+    position: absolute; border: 2px solid var(--gf-blue); border-radius: 4px;
+    background: rgba(138,180,248,.10); pointer-events: none;
+}
+.gf-pattern-box span {
+    position: absolute; top: -22px; left: -2px; white-space: nowrap;
+    background: var(--gf-blue); color: #062e6f; font-size: .68rem; font-weight: 600;
+    padding: 2px 7px; border-radius: 5px;
+}
+
+/* Asistan yanıtındaki kaynaklar */
+.gf-msg-src { margin-top: 10px; border-top: 1px solid var(--gf-border); padding-top: 8px; }
+.gf-msg-src a { display: block; font-size: .74rem; color: var(--gf-blue);
+                text-decoration: none; margin-top: 3px; }
+.gf-msg-src a:hover { text-decoration: underline; }

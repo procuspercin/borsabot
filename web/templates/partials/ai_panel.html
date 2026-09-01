@@ -13,7 +13,16 @@
     {% if ai.history %}
     <div class="gf-chat">
       {% for msg in ai.history %}
-        <div class="gf-msg {{ 'user' if msg.role == 'user' else 'bot' }}">{{ msg.content }}</div>
+        <div class="gf-msg {{ 'user' if msg.role == 'user' else 'bot' }}">{{ msg.content }}
+          {% if msg.sources %}
+          <div class="gf-msg-src">
+            <div class="gf-source">Kaynaklar</div>
+            {% for s in msg.sources %}
+            <a href="{{ s.url }}" target="_blank" rel="noopener">{{ loop.index }}. {{ s.title }}</a>
+            {% endfor %}
+          </div>
+          {% endif %}
+        </div>
       {% endfor %}
     </div>
     {% else %}

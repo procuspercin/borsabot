@@ -754,7 +754,12 @@ AI_SYSTEM_PROMPT = """Sen BorsaBot Finans uygulamasının teknik analiz asistan�
 Karşındaki kullanıcı deneyimli bir yatırımcı ve senden LAF KALABALIĞI DEĞİL, SOMUT FİYAT SEVİYELERİ bekliyor.
 
 Kurallar:
-- SADECE sana verilen fiyat, seviye ve indikatör verileri üzerinden konuş. Veri yoksa "elimde bu veri yok" de, uydurma.
+- Fiyat, seviye ve indikatör YORUMLARINDA sadece sana verilen verileri kullan; sayı uydurma.
+- Şirketin kendisiyle ilgili sorularda (yönetim, ortaklık yapısı, KAP bildirimleri, bilanço,
+  haberler, sektör gelişmeleri) GOOGLE ARAMASINI KULLAN. Bulduğunu kaynağıyla birlikte aktar,
+  haberin ne olduğunu ve hisseye olası etkisini bir cümleyle yaz. Bulamazsan "bulamadım" de.
+- Sana "görüntü tanıma modeliyle bulunan formasyonlar" verilmişse, bunları fiyat verisiyle
+  birlikte yorumla ve güven oranını belirt; modelin yanılabileceğini hatırlat.
 - Aşağıda birden fazla hissenin verisi olabilir; kullanıcı hangisini sorduysa onun bölümünü kullan,
   iki hisse sorulduysa ikisini karşılaştır.
 - SOMUT OL. "Destek var" deme; "384,00 (Fib %23.6) ilk destek" de. Her seviyeyi rakamla ver ve
@@ -945,12 +950,12 @@ def _ask_vertex(system_prompt: str, history: list) -> tuple:
     location = setting("VERTEX_LOCATION", "us-central1")
     model = setting("VERTEX_MODEL", "gemini-2.5-flash")
     if not project:
-        return None, "Vertex AI için VERTEX_PROJECT ayarlanmamış."
+        return None, "Vertex AI için VERTEX_PROJECT ayarlanmamış.", []
 
     try:
         token = _vertex_token()
     except Exception as exc:
-        return None, f"Vertex kimlik doğrulaması başarısız: {exc}"
+        return None, f"Vertex kimlik doğrulaması başarısız: {exc}", []
 
     host = "aiplatform.googleapis.com" if location == "global" else f"{location}-aiplatform.googleapis.com"
     url = (f"https://{host}/v1/projects/{project}/locations/{location}"
@@ -962,28 +967,48 @@ def _ask_vertex(system_prompt: str, history: list) -> tuple:
              "parts": [{"text": msg["content"]}]}
             for msg in history[-10:]
         ],
-        "generationConfig": {"temperature": 0.4, "maxOutputTokens": 800},
+        # Google araması: model gerekli gördüğünde kendisi arar, kaynakları
+        # groundingMetadata içinde döndürür. Ek servis/anahtar gerekmiyor.
+        "tools": [{"googleSearch": {}}],
+        "generationConfig": {"temperature": 0.4, "maxOutputTokens": 1200},
     }
     try:
         r = requests.post(url, headers={"Authorization": f"Bearer {token}",
                                         "Content-Type": "application/json"},
                           json=payload, timeout=45)
     except Exception as exc:
-        return None, f"Bağlantı hatası: {exc}"
+        return None, f"Bağlantı hatası: {exc}", []
 
     if r.status_code != 200:
         try:
             detail = r.json().get("error", {}).get("message", "")[:200]
         except Exception:
             detail = r.text[:200]
-        return None, f"Vertex AI hatası ({r.status_code}): {detail}"
+        return None, f"Vertex AI hatası ({r.status_code}): {detail}", []
 
     try:
-        parts = r.json()["candidates"][0]["content"]["parts"]
+        candidate = r.json()["candidates"][0]
+        parts = candidate["content"]["parts"]
         text = "".join(p.get("text", "") for p in parts).strip()
-        return (text or None), (None if text else "Boş yanıt döndü.")
+        sources = _grounding_sources(candidate)
+        return (text or None), (None if text else "Boş yanıt döndü."), sources
     except Exception:
-        return None, "Yanıt çözümlenemedi."
+        return None, "Yanıt çözümlenemedi.", []
+
+
+def _grounding_sources(candidate: dict) -> list:
+    """Google aramasından dönen kaynakları {title, url} listesine çevirir."""
+    chunks = (candidate.get("groundingMetadata") or {}).get("groundingChunks") or []
+    out, seen = [], set()
+    for chunk in chunks:
+        web = chunk.get("web") or {}
+        url = web.get("uri")
+        title = (web.get("title") or url or "").strip()
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        out.append({"title": title, "url": url})
+    return out[:6]
 
 
 def _ask_openai_compatible(system_prompt: str, history: list) -> tuple:
@@ -1027,16 +1052,17 @@ def ask_llm(history: list, context_text: str):
     provider = llm_provider()
     if not provider:
         return None, ("Asistan için sağlayıcı tanımlı değil. secrets.toml içine "
-                      "VERTEX_PROJECT (Vertex AI) ya da LLM_API_KEY (Groq/OpenAI) ekle.")
+                      "VERTEX_PROJECT (Vertex AI) ya da LLM_API_KEY (Groq/OpenAI) ekle."), []
 
     allowed, limit_msg = _gemini_acquire()
     if not allowed:
-        return None, limit_msg
+        return None, limit_msg, []
 
     system_prompt = AI_SYSTEM_PROMPT + "\n\nGüncel teknik veriler:\n" + context_text
 
+    sources = []
     if provider == "vertex":
-        answer, err = _ask_vertex(system_prompt, history)
+        answer, err, sources = _ask_vertex(system_prompt, history)
     elif provider == "openai":
         answer, err = _ask_openai_compatible(system_prompt, history)
     else:
@@ -1049,12 +1075,13 @@ def ask_llm(history: list, context_text: str):
             if _gemini_usage["times"]:
                 _gemini_usage["times"].pop()
             _gemini_usage["count"] = max(0, _gemini_usage["count"] - 1)
-    return answer, err
+    return answer, err, sources
 
 
 def ask_gemini(history: list, context_text: str):
-    """Eski ad; çağıranlar için korunuyor."""
-    return ask_llm(history, context_text)
+    """Eski ad; kaynakları atarak (cevap, hata) döndürür."""
+    answer, err, _ = ask_llm(history, context_text)
+    return answer, err
 
 
 def _ask_gemini_api_key(system_prompt: str, history: list):

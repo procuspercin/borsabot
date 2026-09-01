@@ -32,3 +32,6 @@ Başlıksız e-tablo.xlsx
 vertex.json
 *-service-account*.json
 borsabot-chat-bot-*.json
+
+# YOLO formasyon modeli (87 MB) — HuggingFace'ten indirilir
+models/*.pt

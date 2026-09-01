@@ -1,0 +1,13 @@
+# Formasyon tespiti — İSTEĞE BAĞLI
+#
+# Kurulmazsa "Formasyon tara" düğmesi kapalı kalır, uygulamanın geri kalanı
+# etkilenmez. ultralytics beraberinde torch'u getirir: ~2 GB disk, çalışma
+# anında birkaç yüz MB RAM. Küçük sunucularda dikkatli ol.
+#
+#   .venv/bin/pip install -r requirements-patterns.txt
+#   curl -L -o models/stockmarket-yolov8.pt \
+#     https://huggingface.co/foduucom/stockmarket-pattern-detection-yolov8/resolve/main/model.pt
+
+ultralytics>=8.3
+mplfinance>=0.12
+pillow>=10.0

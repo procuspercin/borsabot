@@ -19,7 +19,8 @@ import threading
 import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from html import escape as html_escape
 from pathlib import Path
 
@@ -364,22 +365,104 @@ def get_market_movers(quotes: dict | None = None, limit: int = MOVERS_LIMIT) -> 
     return pd.DataFrame(rows).sort_values("Değişim %", ascending=False).reset_index(drop=True)
 
 
-@ttl_cache(300)
-def get_bloomberg_news():
-    RSS_URL = "https://www.bloomberght.com/rss"
+# Haber kaynakları. Bloomberg HT'nin RSS'i zaman zaman günlerce güncellenmiyor,
+# bu yüzden akış birden çok kaynaktan toplanıp tarihe göre sıralanıyor.
+NEWS_FEEDS = [
+    ("AA Ekonomi", "https://www.aa.com.tr/tr/rss/default?cat=ekonomi"),
+    ("Dünya", "https://www.dunya.com/rss"),
+    ("Ekonomim", "https://www.ekonomim.com/rss"),
+    ("Foreks", "https://www.foreks.com/rss"),
+    ("TRT Haber", "https://www.trthaber.com/ekonomi_articles.rss"),
+    ("Hürriyet", "https://www.hurriyet.com.tr/rss/ekonomi"),
+    ("Bloomberg HT", "https://www.bloomberght.com/rss"),
+]
+_NEWS_HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
+_TR_MONTHS_SHORT = {
+    1: "Oca", 2: "Şub", 3: "Mar", 4: "Nis", 5: "May", 6: "Haz",
+    7: "Tem", 8: "Ağu", 9: "Eyl", 10: "Eki", 11: "Kas", 12: "Ara",
+}
+
+
+def _fetch_feed(source: str, url: str) -> list:
     try:
-        response = requests.get(RSS_URL, timeout=10)
-        soup = BeautifulSoup(response.content, 'xml')
-        items = soup.find_all('item')
-        news_list = []
-        for item in items:
-            title = item.find('title').text if item.find('title') else "Başlık Yok"
-            link = item.find('link').text if item.find('link') else "#"
-            pub_date = item.find('pubDate').text if item.find('pubDate') else ""
-            news_list.append({'title': title, 'link': link, 'published': pub_date})
-        return news_list
+        response = requests.get(url, timeout=10, headers=_NEWS_HEADERS)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.content, "xml")
     except Exception:
         return []
+
+    out = []
+    for item in soup.find_all("item"):
+        title = item.find("title")
+        link = item.find("link")
+        if not title or not link:
+            continue
+        published = item.find("pubDate")
+        when = None
+        if published:
+            try:
+                when = parsedate_to_datetime(published.text)
+                if when.tzinfo is None:
+                    when = when.replace(tzinfo=timezone.utc)
+            except (TypeError, ValueError):
+                when = None
+        out.append({
+            "title": title.text.strip(),
+            "link": link.text.strip(),
+            "source": source,
+            "when": when,
+        })
+    return out
+
+
+def _relative_tr(when) -> str:
+    """'12 dk önce' / '3 sa önce' / '28 Ağu 17:30' biçiminde kısa tarih."""
+    if when is None:
+        return ""
+    now = datetime.now(timezone.utc)
+    delta = (now - when).total_seconds()
+    if delta < 60:
+        return "az önce"
+    if delta < 3600:
+        return f"{int(delta // 60)} dk önce"
+    if delta < 86400:
+        return f"{int(delta // 3600)} sa önce"
+    local = when.astimezone(dl.now_istanbul().tzinfo)
+    return f"{local.day} {_TR_MONTHS_SHORT[local.month]} {local:%H:%M}"
+
+
+@ttl_cache(300)
+def get_news(limit: int = 60) -> list:
+    """
+    Tüm kaynakları paralel çeker, tarihe göre yeniden eskiye sıralar ve
+    aynı haberin farklı kaynaklardan gelen kopyalarını ayıklar.
+    """
+    with ThreadPoolExecutor(max_workers=len(NEWS_FEEDS)) as ex:
+        batches = list(ex.map(lambda f: _fetch_feed(*f), NEWS_FEEDS))
+
+    items = [item for batch in batches for item in batch]
+    items.sort(key=lambda i: i["when"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+
+    seen, out = set(), []
+    for item in items:
+        key = re.sub(r"\W+", "", item["title"].lower())[:70]
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append({
+            "title": item["title"],
+            "link": item["link"],
+            "source": item["source"],
+            "published": _relative_tr(item["when"]),
+        })
+        if len(out) >= limit:
+            break
+    return out
+
+
+# Eski ad; çağıranlar için korunuyor.
+def get_bloomberg_news():
+    return get_news()
 
 
 @ttl_cache(300)
@@ -1326,6 +1409,55 @@ def compute_daily_record(symbol: str) -> dict | None:
         'kaydedilme_zamani': kaydedilme,
     }
     return record
+
+
+# Sabit tarihli resmi tatiller. Dini bayramlar (Ramazan/Kurban) hicri takvime
+# göre kaydığı ve tarihleri Diyanet tarafından belirlendiği için buraya
+# yazılmıyor; o günler borsa verisinden "kapalı" olarak tespit edilip
+# "Borsa kapalı" diye gösteriliyor.
+FIXED_HOLIDAYS = {
+    (1, 1): "Yılbaşı",
+    (4, 23): "Ulusal Egemenlik ve Çocuk Bayramı",
+    (5, 1): "Emek ve Dayanışma Günü",
+    (5, 19): "Atatürk'ü Anma, Gençlik ve Spor Bayramı",
+    (7, 15): "Demokrasi ve Milli Birlik Günü",
+    (8, 30): "Zafer Bayramı",
+    (10, 29): "Cumhuriyet Bayramı",
+}
+
+
+@ttl_cache(1800)
+def market_open_days(period: str = "3mo") -> frozenset:
+    """
+    BIST 100'ün işlem gördüğü günler. Bir iş gününde veri yoksa borsa o gün
+    kapalıdır — tatilin adını bilmesek de kapalı olduğunu kesin biliriz.
+    """
+    df = get_stock_data("XU100.IS", period, "1d")
+    if df is None or df.empty:
+        return frozenset()
+    return frozenset(pd.Timestamp(d).date() for d in df.index)
+
+
+def day_note(day, has_records: bool, open_days: frozenset) -> str:
+    """Takvimde veri olmayan bir gün için kısa açıklama."""
+    if has_records:
+        return ""
+
+    # Bugün henüz kapanmadıysa "borsa kapalı" demek yanlış olur; kayıt kapanış
+    # fiyatıyla üretildiği için seans bitmeden oluşmuyor.
+    if day == dl.today_istanbul() and day.weekday() < 5 \
+            and (day.month, day.day) not in FIXED_HOLIDAYS:
+        return "Kapanış bekleniyor"
+    # Tatil adı hafta sonundan önce gelir: 30 Ağustos pazara denk gelse bile
+    # "Zafer Bayramı" yazmak daha bilgilendirici.
+    name = FIXED_HOLIDAYS.get((day.month, day.day))
+    if name:
+        return name
+    if day.weekday() >= 5:
+        return "Hafta sonu"
+    if open_days and day not in open_days:
+        return "Borsa kapalı"
+    return "Kayıt yok"
 
 
 def compute_records_for_history(symbol: str, days: int = 30) -> list[dict]:

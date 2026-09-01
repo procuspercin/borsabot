@@ -56,7 +56,7 @@
       {% for item in news %}
       <a class="gf-news-card" href="{{ safe_link(item.link) }}" target="_blank" rel="noopener">
         <div class="gf-news-card-title">{{ item.title }}</div>
-        <div class="gf-news-time">{{ item.published[5:16] }}</div>
+        <div class="gf-news-time"><span class="gf-news-src">{{ item.source }}</span>{{ item.published }}</div>
       </a>
       {% endfor %}
     </div>

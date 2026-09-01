@@ -3,14 +3,14 @@
 {% block content %}
 <div style="display:flex;align-items:center;gap:16px;margin-bottom:6px;">
   <a class="btn" href="/">← Geri</a><h3 style="margin:0;">Haberler</h3>
-  <span class="gf-source" style="margin-left:auto;">Bloomberg HT</span>
+  <span class="gf-source" style="margin-left:auto;">{{ news|length }} haber · {{ news|map(attribute="source")|unique|list|length }} kaynak</span>
 </div>
 
 <div class="gf-news-grid">
   {% for item in news %}
   <a class="gf-news-card" href="{{ safe_link(item.link) }}" target="_blank" rel="noopener">
     <div class="gf-news-card-title">{{ item.title }}</div>
-    <div class="gf-news-time">{{ item.published[5:16] }}</div>
+    <div class="gf-news-time"><span class="gf-news-src">{{ item.source }}</span>{{ item.published }}</div>
   </a>
   {% endfor %}
 </div>

@@ -47,6 +47,7 @@
       {% else %}
         <div class="gf-cal-cell {{ 'weekend' if c.weekend }} {{ 'today' if c.is_today }}">
           <div class="gf-cal-day">{{ c.day }}</div>
+          {% if c.note %}<div class="gf-cal-note">{{ c.note }}</div>{% endif %}
         </div>
       {% endif %}
     {% endfor %}

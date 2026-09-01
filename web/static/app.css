@@ -273,3 +273,12 @@ select[multiple] { background-image: none; padding-right: 16px; }
     color: inherit; font: inherit;
 }
 .gf-similar:hover { background: var(--gf-surface-2); border: none; }
+
+
+.gf-news-src {
+    display: inline-block; background: var(--gf-surface-2); color: var(--gf-text-dim);
+    border-radius: 100px; padding: 2px 9px; margin-right: 8px; font-size: .68rem;
+}
+
+.gf-cal-note { font-size: .68rem; color: var(--gf-text-dim); margin-top: 4px; line-height: 1.25; }
+.gf-cal-cell.weekend { background: transparent; border-style: dashed; }

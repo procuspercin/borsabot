@@ -104,7 +104,7 @@ def home(request: Request):
         "state": state,
         "gainers": movers.head(n_side).to_dict("records"),
         "losers": movers.tail(n_side).iloc[::-1].to_dict("records"),
-        "news": m.get_bloomberg_news()[:6],
+        "news": m.get_news()[:6],
         "ai": _ai_context(state, state["watchlist"][0] if state["watchlist"] else "THYAO.IS"),
     }, sid)
 
@@ -400,6 +400,7 @@ def _calendar_weeks(today: date, per_day: dict, days: int) -> list[list[dict]]:
     Son `days` günü kapsayan, pazartesiyle başlayan hafta satırları üretir.
     Her hücre: tarih, o güne ait kayıt özeti, bugün mü, aralık dışında mı.
     """
+    open_days = m.market_open_days()
     first = today - timedelta(days=days)
     first -= timedelta(days=first.weekday())          # haftanın başına hizala
     weeks, cursor = [], first
@@ -407,9 +408,11 @@ def _calendar_weeks(today: date, per_day: dict, days: int) -> list[list[dict]]:
         week = []
         for _ in range(7):
             iso = cursor.isoformat()
+            stats = per_day.get(iso)
             week.append({
                 "date": cursor, "iso": iso, "day": cursor.day,
-                "stats": per_day.get(iso),
+                "stats": stats,
+                "note": m.day_note(cursor, bool(stats), open_days),
                 "is_today": cursor == today,
                 "future": cursor > today,
                 "weekend": cursor.weekday() >= 5,
@@ -441,7 +444,7 @@ def similar_events(request: Request, ticker: str, horizon: int, p: float = 0.5):
 @app.get("/haberler", response_class=HTMLResponse)
 def news_page(request: Request):
     sid, state = _session(request)
-    return _render(request, "news.html", {"news": m.get_bloomberg_news(), "state": state}, sid)
+    return _render(request, "news.html", {"news": m.get_news(), "state": state}, sid)
 
 
 @app.get("/arama")

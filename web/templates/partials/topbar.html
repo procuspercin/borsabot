@@ -1,0 +1,17 @@
+<div class="gf-topbar">
+  <a href="/" class="gf-logo" style="text-decoration:none;">Borsa<b>Bot</b> Finans</a>
+
+  <form action="/arama" method="get" style="flex:1;max-width:720px;">
+    <input type="search" name="sembol" list="tum-semboller" autocomplete="off"
+           placeholder="Hisse senedi, endeks veya sembol arayın">
+    <datalist id="tum-semboller">
+      {% for s in BIST100_SYMBOLS %}<option value="{{ s.replace('.IS', '') }}">{% endfor %}
+    </datalist>
+  </form>
+
+  <nav style="display:flex;gap:10px;">
+    <a class="btn" href="/toplu-analiz">Toplu Analiz</a>
+    <a class="btn" href="/gunluk-kayit">Günlük Kayıt</a>
+    <a class="btn" href="/ml-tahmin">ML Tahmin</a>
+  </nav>
+</div>

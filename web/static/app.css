@@ -1,0 +1,196 @@
+@import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap');
+
+:root {--gf-bg: #131314;
+        --gf-surface: #1e1f20;
+        --gf-surface-2: #282a2c;
+        --gf-border: #3c4043;
+        --gf-text: #e3e3e3;
+        --gf-text-dim: #9aa0a6;
+        --gf-green: #81c995;
+        --gf-red: #f28b82;
+        --gf-blue: #8ab4f8;}
+
+/* ---------- Temel ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+html, body {
+    margin: 0; padding: 0;
+    background-color: var(--gf-bg); color: var(--gf-text);
+    font-family: 'Google Sans', 'Roboto', -apple-system, sans-serif;
+    font-size: 15px; line-height: 1.5;
+}
+.page { max-width: 1600px; margin: 0 auto; padding: 14px 24px 48px; }
+h1, h2, h3, h4 { color: var(--gf-text); font-weight: 500; letter-spacing: 0; }
+h4 { font-size: 1.05rem; margin: 18px 0 10px; }
+a { color: inherit; }
+
+/* Ana yerleşim: sol liste | orta içerik | sağ asistan */
+.gf-layout { display: grid; grid-template-columns: 1.25fr 3.3fr 1.45fr; gap: 22px; align-items: start; }
+@media (max-width: 1200px) { .gf-layout { grid-template-columns: 1fr; } }
+
+/* ---------- Kontroller ---------- */
+button, .btn {
+    background-color: transparent; color: var(--gf-text);
+    border: 1px solid var(--gf-border); border-radius: 100px;
+    font-family: inherit; font-weight: 500; font-size: .85rem;
+    padding: .45rem 1rem; cursor: pointer;
+    transition: background-color .15s, border-color .15s;
+}
+button:hover, .btn:hover { background-color: var(--gf-surface-2); border-color: #5f6368; }
+button.primary, .btn.primary {
+    background-color: var(--gf-blue); color: #062e6f; border: none; font-weight: 600;
+}
+button.primary:hover, .btn.primary:hover { background-color: #a8c7fa; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+
+input[type="text"], input[type="search"], select, textarea {
+    background-color: var(--gf-surface-2); color: var(--gf-text);
+    border: 1px solid transparent; border-radius: 24px;
+    padding: 11px 16px; font-family: inherit; font-size: .92rem; width: 100%;
+}
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--gf-blue); }
+input::placeholder, textarea::placeholder { color: var(--gf-text-dim); }
+select { border-radius: 28px; min-height: 46px; cursor: pointer; }
+label { font-size: .78rem; color: var(--gf-text-dim); display: block; margin-bottom: 5px; }
+
+/* ---------- Sekmeler ---------- */
+.gf-tabs { display: flex; gap: 8px; border-bottom: 1px solid var(--gf-border); margin-bottom: 14px; }
+.gf-tab {
+    background: transparent; border: none; border-radius: 100px 100px 0 0;
+    color: var(--gf-text-dim); font-size: .9rem; font-weight: 500;
+    padding: 10px 16px; cursor: pointer; border-bottom: 3px solid transparent;
+}
+.gf-tab:hover { color: var(--gf-text); background: var(--gf-surface); }
+.gf-tab.active { color: var(--gf-blue); border-bottom-color: var(--gf-blue); background: transparent; }
+
+/* ---------- Tablolar ---------- */
+.gf-table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+.gf-table th {
+    text-align: left; color: var(--gf-text-dim); font-weight: 500; font-size: .75rem;
+    text-transform: uppercase; letter-spacing: .04em;
+    padding: 8px 10px; border-bottom: 1px solid var(--gf-border);
+}
+.gf-table td { padding: 9px 10px; border-bottom: 1px solid var(--gf-surface-2); }
+.gf-table tbody tr:hover { background: var(--gf-surface); }
+.gf-table-wrap { overflow-x: auto; }
+
+/* ---------- Liste satırı butonu (izleme listesi) ---------- */
+.gf-row-btn {
+    display: block; width: 100%; text-align: left; background: transparent;
+    border: none; border-radius: 8px; padding: 0; cursor: pointer;
+}
+.gf-row-btn:hover { background: var(--gf-surface); border: none; }
+
+/* ---------- Asistan sohbeti ---------- */
+.gf-chat { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
+.gf-msg { border-radius: 14px; padding: 10px 14px; font-size: .88rem; }
+.gf-msg.user { background: var(--gf-surface-2); align-self: flex-end; max-width: 92%; }
+.gf-msg.bot { background: var(--gf-surface); border: 1px solid var(--gf-border); }
+.gf-msg p { margin: 0 0 8px; }
+.gf-msg p:last-child { margin-bottom: 0; }
+.gf-quick { display: flex; flex-direction: column; gap: 8px; }
+.gf-quick button { text-align: left; border-radius: 14px; padding: 10px 14px; font-size: .84rem; }
+
+/* ---------- Açılır bölüm ---------- */
+details.gf-details {
+    background: var(--gf-surface); border: 1px solid var(--gf-border);
+    border-radius: 12px; padding: 12px 16px; margin-bottom: 12px;
+}
+details.gf-details > summary { cursor: pointer; font-weight: 500; list-style: none; }
+details.gf-details > summary::-webkit-details-marker { display: none; }
+details.gf-details > summary::after { content: " ⌄"; color: var(--gf-text-dim); float: right; }
+
+/* ---------- Yükleniyor göstergesi (htmx) ---------- */
+.htmx-indicator { opacity: 0; transition: opacity .2s; }
+.htmx-request .htmx-indicator, .htmx-request.htmx-indicator { opacity: 1; }
+.gf-spinner {
+    display: inline-block; width: 15px; height: 15px; vertical-align: -2px;
+    border: 2px solid var(--gf-border); border-top-color: var(--gf-blue);
+    border-radius: 50%; animation: gf-spin .7s linear infinite;
+}
+@keyframes gf-spin { to { transform: rotate(360deg); } }
+
+/* ---------- Modal (teknik özet) ---------- */
+.gf-modal-bg {
+    position: fixed; inset: 0; background: rgba(0,0,0,.6);
+    display: flex; align-items: center; justify-content: center; z-index: 50; padding: 20px;
+}
+.gf-modal {
+    background: var(--gf-surface); border: 1px solid var(--gf-border); border-radius: 16px;
+    max-width: 860px; width: 100%; max-height: 88vh; overflow-y: auto; padding: 22px 26px;
+}
+.gf-modal-close { float: right; border: none; font-size: 1.1rem; padding: 2px 10px; }
+
+.gf-flash { border-radius: 10px; padding: 10px 14px; font-size: .88rem; margin: 10px 0; }
+.gf-flash.ok { background: rgba(129,201,149,.12); color: var(--gf-green); }
+.gf-flash.err { background: rgba(242,139,130,.12); color: var(--gf-red); }
+.gf-flash.info { background: var(--gf-surface-2); color: var(--gf-text-dim); }
+
+/* ---------- app.py'den birebir taşınan görsel dil ---------- */
+h1, h2, h3, h4 {color: var(--gf-text) !important; font-weight: 500 !important; letter-spacing: 0;}
+/* ---------- Üst bar (logo + arama) ---------- */
+    .gf-topbar {display: flex; align-items: center; gap: 20px;
+        padding: 4px 0 14px 0; margin-bottom: 4px;}
+.gf-logo {font-size: 1.55rem; font-weight: 400; color: var(--gf-text); white-space: nowrap;}
+.gf-logo b {font-weight: 700; color: var(--gf-blue);}
+/* ---------- Radio -> segment chip ---------- */
+    div[role="radiogroup"] label {background-color: var(--gf-surface-2); border-radius: 100px;
+        padding: 6px 14px; margin-right: 8px; border: 1px solid transparent;}
+div[role="radiogroup"] label:hover {border-color: #5f6368;}
+/* ---------- Piyasa kartları ---------- */
+    .gf-cards {display: flex; gap: 12px; overflow-x: auto; padding: 14px 2px 6px 2px;}
+.gf-cards::-webkit-scrollbar {height: 6px;}
+.gf-cards::-webkit-scrollbar-thumb {background: var(--gf-border); border-radius: 3px;}
+.gf-card {flex: 1 0 190px; min-width: 190px;
+        background-color: var(--gf-surface);
+        border: 1px solid var(--gf-border);
+        border-radius: 12px;
+        padding: 14px 14px 6px 14px;}
+.gf-card:hover {background-color: var(--gf-surface-2);}
+.gf-card-name {font-size: 0.9rem; color: var(--gf-text); font-weight: 500; margin-bottom: 8px;
+                    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.gf-card-price {font-size: 1.35rem; font-weight: 400; color: var(--gf-text); line-height: 1.2;}
+.gf-card-abs {font-size: 0.8rem; color: var(--gf-text-dim); margin-top: 2px;}
+.gf-card-chg {font-size: 0.95rem; font-weight: 500; margin-top: 4px;}
+.gf-up {color: var(--gf-green);}
+.gf-down {color: var(--gf-red);}
+.gf-flat {color: var(--gf-text-dim);}
+.gf-spark {margin-top: 6px;}
+/* ---------- Sol panel listeleri ---------- */
+    .gf-side-title {font-size: 1.15rem; font-weight: 400; color: var(--gf-text);
+        padding: 6px 0 10px 4px; display: flex; align-items: center; gap: 8px;}
+.gf-side-sub {font-size: 0.75rem; color: var(--gf-text-dim); text-transform: uppercase;
+        letter-spacing: .6px; padding: 14px 4px 6px 4px;}
+.gf-row {display: flex; align-items: center; justify-content: space-between;
+        padding: 9px 10px; border-radius: 10px; gap: 10px;}
+.gf-row:hover {background-color: var(--gf-surface-2);}
+.gf-row-left {display: flex; flex-direction: column; min-width: 0;}
+.gf-row-sym {font-size: 0.88rem; color: var(--gf-text); font-weight: 500;}
+.gf-row-name {font-size: 0.72rem; color: var(--gf-text-dim); white-space: nowrap;
+                   overflow: hidden; text-overflow: ellipsis; max-width: 110px;}
+.gf-row-right {display: flex; align-items: center; gap: 10px;}
+.gf-row-price {font-size: 0.85rem; color: var(--gf-text); text-align: right;}
+.gf-row-chg {font-size: 0.78rem; font-weight: 500; min-width: 58px; text-align: right;}
+.gf-empty {color: var(--gf-text-dim); font-size: 0.82rem; padding: 8px 4px;}
+/* ---------- Haber / özet ---------- */
+    .gf-panel {background-color: var(--gf-surface); border: 1px solid var(--gf-border);
+        border-radius: 16px; padding: 18px 20px; margin-bottom: 14px;}
+.gf-panel h4 {margin: 0 0 10px 0; font-size: 1.05rem; font-weight: 500;}
+.gf-news {padding: 12px 0; border-bottom: 1px solid var(--gf-border);}
+.gf-news:last-child {border-bottom: none;}
+.gf-news a {font-size: 0.9rem; color: var(--gf-text); text-decoration: none;
+        font-weight: 500; display: block; line-height: 1.35;}
+.gf-news a:hover {color: var(--gf-blue); text-decoration: underline;}
+.gf-news-time {font-size: 0.72rem; color: var(--gf-text-dim); margin-top: 5px;}
+.gf-source {font-size: 0.72rem; color: var(--gf-text-dim);}
+/* ---------- Sinyal rozetleri ---------- */
+    .gf-badge {display: inline-block; padding: 3px 10px; border-radius: 100px;
+        font-size: 0.75rem; font-weight: 600;}
+.gf-badge-buy {background: rgba(129,201,149,.15); color: var(--gf-green);}
+.gf-badge-sell {background: rgba(242,139,130,.15); color: var(--gf-red);}
+.gf-badge-wait {background: rgba(138,180,248,.15); color: var(--gf-blue);}
+hr {border-color: var(--gf-border);}
+.gf-divider {height: 1px; background: var(--gf-border); margin: 18px 0; border: none;}
+/* Popup penceresi */
+    div[role="dialog"] {background-color: var(--gf-surface) !important;
+        border: 1px solid var(--gf-border) !important;
+        border-radius: 20px !important;}

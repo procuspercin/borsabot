@@ -19,3 +19,11 @@ __pycache__/
 stock_forecaster/.venv/
 stock_forecaster/data/
 stock_forecaster/models/
+deploy/
+
+# Sanal ortam (nokta ile başlayan hali; "venv/" bunu yakalamıyor)
+.venv/
+
+# Kişisel takip verisi ve yerel veritabanı — sunucuda elle tutulur
+Başlıksız e-tablo.xlsx
+/data/

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}BorsaBot Finans{% endblock %}</title>
+<link rel="stylesheet" href="/static/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>📈</text></svg>">
+<script src="https://unpkg.com/htmx.org@1.9.12/dist/htmx.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+</head>
+<body>
+<div class="page">
+
+  {% include "partials/topbar.html" %}
+  {% block content %}{% endblock %}
+
+</div>
+
+<div id="modal"></div>
+
+<script>
+function closeModal() { document.getElementById('modal').innerHTML = ''; }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+// Plotly figürünü sunucudan JSON olarak alıp çizer.
+async function drawChart(elId, url) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  el.classList.add('htmx-request');
+  try {
+    const res = await fetch(url);
+    if (!res.ok) { el.innerHTML = '<div class="gf-empty">Grafik verisi alınamadı.</div>'; return; }
+    const fig = JSON.parse(await res.json());
+    Plotly.react(el, fig.data, fig.layout, {responsive: true, displaylogo: false});
+  } catch (err) {
+    el.innerHTML = '<div class="gf-empty">Grafik çizilemedi.</div>';
+  } finally {
+    el.classList.remove('htmx-request');
+  }
+}
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}ML fiyat tahmini · BorsaBot Finans{% endblock %}
+{% block content %}
+
+<div style="display:flex;align-items:center;gap:16px;">
+  <a class="btn" href="/">← Geri</a><h3 style="margin:0;">ML fiyat tahmini</h3>
+</div>
+
+{% if not available %}
+  <div class="gf-flash err">stock_forecaster klasörü bulunamadı. Model dosyaları projede olmalı.</div>
+{% elif not tickers %}
+  <div class="gf-flash err">Model için eğitilmiş hisse listesi okunamadı.</div>
+{% else %}
+  <div class="gf-source" style="margin:10px 0 16px;">
+    RandomForest yön modelleri (10/30/60/120/180 işlem günü) + geçmiş olasılık kalibrasyonu.
+    Model 2010–2026 arası veriyle eğitildi ve yalnızca aşağıdaki hisseleri kapsıyor.
+  </div>
+
+  <form method="get" style="display:flex;gap:16px;align-items:flex-end;">
+    <div style="flex:3;"><label>Hisse</label>
+      <select name="hisse">
+        {% for t in tickers %}<option value="{{ t }}" {{ 'selected' if t == selected }}>{{ t }}</option>{% endfor %}
+      </select></div>
+    <button class="primary" type="submit" style="flex:1;min-height:46px;">Tahmin üret</button>
+  </form>
+
+  {% if err %}
+    <div class="gf-flash err">Tahmin üretilemedi: {{ err }}</div>
+  {% elif data %}
+    <div style="display:flex;gap:26px;flex-wrap:wrap;align-items:baseline;margin:20px 0 10px;">
+      <div><div class="gf-source">Son veri</div><b>{{ data.date }}</b></div>
+      <div><div class="gf-source">Kapanış</div><b>{{ fmt_price(data.close) }}</b></div>
+      <div><div class="gf-source">Piyasa rejimi</div><b>{{
+        {'BULL':'Yükseliş eğilimi','BEAR':'Düşüş eğilimi','NEUTRAL':'Nötr'}.get(data.market_regime, data.market_regime) }}</b></div>
+    </div>
+
+    <div class="gf-side-sub">Vadelere göre beklenti</div>
+    <div class="gf-cards">
+      {% for f in data.forecasts %}{{ forecast_card_html(f) | safe }}{% endfor %}
+    </div>
+
+    <div id="fc-chart" style="min-height:420px;margin-top:16px;"></div>
+
+    <details class="gf-details">
+      <summary>Modelin girdi olarak kullandığı güncel göstergeler</summary>
+      <div class="gf-table-wrap"><table class="gf-table">
+        <tbody>{% for k, v in data.features.items() %}
+          <tr><td>{{ k }}</td><td>{{ '%.4f'|format(v) }}</td></tr>{% endfor %}</tbody>
+      </table></div>
+    </details>
+
+    <details class="gf-details">
+      <summary>Modelin geçmiş başarısı (bunu mutlaka oku)</summary>
+      <div class="gf-table-wrap"><table class="gf-table">
+        <thead><tr><th>Vade</th><th>AUC</th><th>Doğruluk</th><th>En kötü yıl</th><th>En iyi yıl</th><th>0.50 üstü yıl</th></tr></thead>
+        <tbody>{% for e in data.evaluation %}
+          <tr><td>{{ e.horizon }} gün</td><td>{{ '%.3f'|format(e.auc) }}</td>
+              <td>{{ '%.1f'|format(e.accuracy * 100) }}%</td>
+              <td>{{ '%.3f'|format(e.worst_year_auc) }}</td>
+              <td>{{ '%.3f'|format(e.best_year_auc) }}</td>
+              <td>{{ e.years_above_050 }}</td></tr>{% endfor %}</tbody>
+      </table></div>
+    </details>
+  {% else %}
+    <div class="gf-flash info">Bir hisse seçip <b>Tahmin üret</b> butonuna bas.</div>
+  {% endif %}
+
+  <div class="gf-source" style="margin-top:18px;">
+    Bu tahminler geçmiş fiyat verisi ve teknik göstergelerden üretilen istatistiksel
+    beklentilerdir. AL/SAT kararı üretmez, yatırım tavsiyesi değildir.
+  </div>
+{% endif %}
+
+{% endblock %}
+{% block scripts %}
+{% if chart %}
+<script>
+window.addEventListener('load', () => {
+  const fig = JSON.parse({{ chart | tojson }});
+  Plotly.react('fc-chart', fig.data, fig.layout, {responsive: true, displaylogo: false});
+});
+</script>
+{% endif %}
+{% endblock %}

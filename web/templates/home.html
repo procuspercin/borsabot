@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="gf-cards" style="padding:2px 0;">
+  {% for tkr, name in TICKER_STRIP %}{% if tkr in quotes %}
+  {% set q = quotes[tkr] %}
+  <div class="gf-card" style="flex:1 0 150px;min-width:150px;padding:10px 12px;">
+    <div class="gf-card-name" style="font-size:.75rem;color:var(--gf-text-dim);margin-bottom:4px;">{{ name }}</div>
+    <div style="display:flex;align-items:baseline;gap:8px;">
+      <span style="font-size:1rem;font-weight:500;">{{ fmt_price(q.price) }}</span>
+      <span class="{{ trend_class(q.pct) }}" style="font-size:.8rem;">{{ '+' if q.pct >= 0 else '' }}{{ '%.2f'|format(q.pct) }}%</span>
+    </div>
+  </div>
+  {% endif %}{% endfor %}
+</div>
+
+<div class="gf-layout" style="margin-top:14px;">
+  {% include "partials/side_lists.html" %}
+
+  <main>
+    {% with items = MARKET_TABS[MARKET_TABS.keys()|list|first], active = MARKET_TABS.keys()|list|first %}
+      {% include "partials/market_cards.html" %}
+    {% endwith %}
+
+    <hr class="gf-divider">
+    <h4>Piyasa özeti</h4>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+      <div>
+        <div class="gf-side-sub">En çok yükselenler</div>
+        {% for r in gainers %}
+        <a href="/hisse/{{ r['Sembol'] }}" style="text-decoration:none;">
+          <div class="gf-row"><div class="gf-row-left"><span class="gf-row-sym">{{ r['Sembol'] }}</span>
+          <span class="gf-row-name">BIST</span></div><div class="gf-row-right">
+          <span class="gf-row-price">{{ fmt_price(r['Fiyat']) }}</span>
+          <span class="gf-row-chg gf-up">+{{ '%.2f'|format(r['Değişim %']) }}%</span></div></div></a>
+        {% endfor %}
+      </div>
+      <div>
+        <div class="gf-side-sub">En çok düşenler</div>
+        {% for r in losers %}
+        <a href="/hisse/{{ r['Sembol'] }}" style="text-decoration:none;">
+          <div class="gf-row"><div class="gf-row-left"><span class="gf-row-sym">{{ r['Sembol'] }}</span>
+          <span class="gf-row-name">BIST</span></div><div class="gf-row-right">
+          <span class="gf-row-price">{{ fmt_price(r['Fiyat']) }}</span>
+          <span class="gf-row-chg gf-down">{{ '%.2f'|format(r['Değişim %']) }}%</span></div></div></a>
+        {% endfor %}
+      </div>
+    </div>
+
+    <hr class="gf-divider">
+    <h4>Bugün piyasalarda neler oluyor?</h4>
+    {% for item in news %}
+    <div class="gf-news">
+      <a href="{{ safe_link(item.link) }}" target="_blank" rel="noopener">{{ item.title }}</a>
+      <div class="gf-news-time">Bloomberg HT · {{ item.published[5:16] }}</div>
+    </div>
+    {% endfor %}
+
+    <hr class="gf-divider">
+    <h4>Makine öğrenmesi tahmini</h4>
+    {% if ml_tickers %}
+    <div class="gf-source" style="margin-bottom:10px;">
+      Hisseyi seç, RandomForest yön modelleri 10 / 30 / 60 / 120 / 180 işlem günü için
+      beklenen fiyat aralığını üretsin. Yatırım tavsiyesi değildir.
+    </div>
+    <form action="/ml-tahmin" method="get" style="display:flex;gap:12px;align-items:center;">
+      <select name="hisse" style="flex:3;">
+        {% for t in ml_tickers %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+      </select>
+      <button class="primary" type="submit" style="flex:1;">Tahmini göster</button>
+    </form>
+    {% else %}
+    <div class="gf-empty">Tahmin modeli bulunamadı (stock_forecaster klasörü gerekli).</div>
+    {% endif %}
+  </main>
+
+  {% include "partials/ai_panel.html" %}
+</div>
+{% endblock %}

@@ -1,0 +1,37 @@
+<div class="gf-modal-bg" onclick="if (event.target === this) closeModal()">
+  <div class="gf-modal">
+    <button class="gf-modal-close" onclick="closeModal()">✕</button>
+    <h3 style="margin-top:0;">Teknik özet</h3>
+
+    {% set q = ctx.quote %}
+    <div style="font-size:1.2rem;font-weight:500;">{{ symbol.replace('.IS','') }}
+      <span class="gf-source" style="margin-left:8px;">BIST · {{ symbol }}</span></div>
+    <div style="display:flex;align-items:baseline;gap:12px;margin:6px 0 4px;">
+      <span style="font-size:1.8rem;">{{ fmt_price(q.price) }}</span>
+      <span class="{{ trend_class(q.pct) }}">{{ '+' if q.pct >= 0 else '' }}{{ fmt_price(q.change) }}
+        ({{ '%.2f'|format(q.pct) }}%) {{ trend_arrow(q.pct) | safe }}</span>
+      <span style="margin-left:auto;">{{ signal_badge(ctx.genel) | safe }}</span>
+    </div>
+    {{ sparkline_svg(q.spark, q.pct, 620, 110) | safe }}
+
+    <div class="gf-side-sub" style="margin-top:14px;">İndikatör sinyalleri</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 22px;">
+      {% for name, row in signals.items() %}
+      <div style="display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--gf-surface-2);padding:6px 0;">
+        <div style="flex:1;">
+          <div style="font-size:.88rem;">{{ name }}</div>
+          <div class="gf-source" style="font-size:.72rem;">{{ row.degerler }}</div>
+        </div>
+        {{ signal_badge(row.sinyal) | safe }}
+      </div>
+      {% endfor %}
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap;">
+      <a class="btn primary" href="/hisse/{{ symbol }}">Detaylı grafiği aç</a>
+      <button hx-post="/p/izleme/{{ symbol }}" hx-target="#side-lists" hx-swap="outerHTML"
+              onclick="closeModal()">{{ '★ İzlemeden çıkar' if in_watchlist else '☆ İzlemeye ekle' }}</button>
+      <a class="btn" href="/ml-tahmin?hisse={{ symbol.replace('.IS','') }}">ML tahmini</a>
+    </div>
+  </div>
+</div>

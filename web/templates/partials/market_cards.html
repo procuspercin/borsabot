@@ -1,0 +1,16 @@
+<div id="market-cards">
+  <div class="gf-tabs">
+    {% for name in MARKET_TABS %}
+    <button class="gf-tab {% if name == active %}active{% endif %}"
+            hx-get="/p/piyasa/{{ name }}" hx-target="#market-cards" hx-swap="outerHTML">{{ name }}</button>
+    {% endfor %}
+  </div>
+  {% set found = items | selectattr('0', 'in', quotes) | list %}
+  {% if found %}
+  <div class="gf-cards">
+    {% for tkr, name in items %}{% if tkr in quotes %}{{ market_card_html(name, quotes[tkr]) | safe }}{% endif %}{% endfor %}
+  </div>
+  {% else %}
+  <div class="gf-empty">Veri alınamadı.</div>
+  {% endif %}
+</div>

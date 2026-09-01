@@ -1,0 +1,50 @@
+<section id="ai-panel">
+  <div class="gf-side-title">✨ Teknik Analiz Asistanı</div>
+  <div class="gf-source" style="padding-left:4px;">Konu: <b>{{ ai.short }}</b> · Gemini</div>
+
+  {% if not ai.has_key %}
+    <div class="gf-panel" style="padding:14px 16px;margin-top:10px;">
+      <div class="gf-source">Gemini API anahtarı tanımlı değil. Sunucuda
+      <code>.streamlit/secrets.toml</code> içine <code>GEMINI_API_KEY</code> ekle
+      ya da <code>GEMINI_API_KEY</code> ortam değişkenini tanımla.</div>
+    </div>
+  {% else %}
+    {% if ai.history %}
+    <div class="gf-chat">
+      {% for msg in ai.history %}
+        <div class="gf-msg {{ 'user' if msg.role == 'user' else 'bot' }}">{{ msg.content }}</div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="gf-side-sub">Hazır sorular</div>
+    <div class="gf-quick">
+      {% for q in ai.quick %}
+      <button hx-post="/p/asistan/{{ ai.symbol }}" hx-vals='{"soru": {{ q | tojson }}}'
+              hx-target="#ai-panel" hx-swap="outerHTML" hx-disabled-elt="this">{{ q }}</button>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <form hx-post="/p/asistan/{{ ai.symbol }}" hx-target="#ai-panel" hx-swap="outerHTML"
+          hx-disabled-elt="find button, find textarea" style="margin-top:12px;">
+      <textarea name="soru" rows="2" required
+                placeholder="{{ ai.short }} hakkında teknik bir soru sor..."></textarea>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
+        <button type="submit" class="primary">Sor</button>
+        <span class="htmx-indicator gf-source"><span class="gf-spinner"></span> yorumlanıyor…</span>
+      </div>
+    </form>
+
+    <div class="gf-source" style="padding:8px 2px;">
+      Başka bir hisseyi sorarsan onun teknik verisini de getiririm. Yatırım tavsiyesi değildir.
+      {% if ai.usage.daily_left <= 0 %}<br><b>Günlük soru hakkı doldu (gece yarısı sıfırlanır).</b>
+      {% elif ai.usage.minute_left <= 0 %}<br><b>Dakikalık limit doldu, birazdan tekrar dene.</b>
+      {% elif ai.usage.daily_left <= 20 %}<br><b>Bugün kalan soru hakkı: {{ ai.usage.daily_left }}</b>{% endif %}
+    </div>
+
+    {% if ai.history %}
+    <button hx-post="/p/asistan/{{ ai.symbol }}/temizle" hx-target="#ai-panel" hx-swap="outerHTML"
+            style="width:100%;">Sohbeti temizle</button>
+    {% endif %}
+  {% endif %}
+</section>

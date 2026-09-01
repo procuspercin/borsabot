@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}{{ symbol.replace('.IS','') }} · BorsaBot Finans{% endblock %}
+{% block content %}
+
+<div style="display:flex;align-items:flex-start;gap:16px;">
+  <a class="btn" href="/">← Geri</a>
+  <div style="flex:1;">
+    {% if quote %}
+    <div style="font-size:1.5rem;font-weight:500;">{{ symbol.replace('.IS','') }}
+      <span class="gf-source" style="margin-left:10px;">BIST · {{ symbol }}</span></div>
+    <div style="display:flex;align-items:baseline;gap:12px;margin-top:6px;">
+      <span style="font-size:2rem;font-weight:400;">{{ fmt_price(quote.price) }}</span>
+      <span class="{{ trend_class(quote.pct) }}" style="font-size:1rem;font-weight:500;">
+        {{ '+' if quote.pct >= 0 else '' }}{{ fmt_price(quote.change) }}
+        ({{ '%.2f'|format(quote.pct) }}%) {{ trend_arrow(quote.pct) | safe }}</span>
+    </div>
+    {% else %}
+    <div style="font-size:1.5rem;font-weight:500;">{{ symbol }}</div>
+    {% endif %}
+  </div>
+  <button hx-post="/p/izleme/{{ symbol }}" hx-target="this" hx-swap="none">
+    {{ '★ İzlemeden çıkar' if symbol in state.watchlist else '☆ İzlemeye ekle' }}</button>
+</div>
+
+{% if notice %}<div class="gf-flash info">ℹ️ {{ notice }}</div>{% endif %}
+
+<form method="get" style="display:grid;grid-template-columns:1fr 1fr 2fr;gap:16px;margin:18px 0 10px;">
+  <div><label>Zaman Dilimi</label>
+    <select name="interval" onchange="this.form.submit()">
+      {% for i in intervals %}<option value="{{ i }}" {{ 'selected' if i == interval }}>{{ i }}</option>{% endfor %}
+    </select></div>
+  <div><label>Periyot</label>
+    <select name="period" onchange="this.form.submit()">
+      {% for p in periods %}<option value="{{ p }}" {{ 'selected' if p == period }}>{{ p }}</option>{% endfor %}
+    </select></div>
+  <div><label>İndikatörler</label>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;">
+      {% for i in all_indicators %}
+      <label style="display:inline-flex;align-items:center;gap:5px;margin:0;padding:5px 11px;
+                    border:1px solid var(--gf-border);border-radius:100px;cursor:pointer;
+                    background:{{ 'var(--gf-surface-2)' if i in indicators else 'transparent' }};">
+        <input type="checkbox" name="ind" value="{{ i }}" {{ 'checked' if i in indicators }}
+               onchange="this.form.submit()" style="width:auto;margin:0;">{{ i }}</label>
+      {% endfor %}
+    </div></div>
+  <input type="hidden" name="vade" value="{{ vade }}">
+</form>
+
+<form method="get" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
+  <input type="hidden" name="period" value="{{ period }}">
+  <input type="hidden" name="interval" value="{{ interval }}">
+  {% for i in indicators %}<input type="hidden" name="ind" value="{{ i }}">{% endfor %}
+  {% for f in futures %}
+  <button name="vade" value="{{ f }}" class="{{ 'primary' if f == vade }}">{{ f }}</button>
+  {% endfor %}
+</form>
+
+{% if vade != 'Spot (Hisse)' %}
+<div class="gf-flash info">Seçilen vade sembolü: <b>{{ target }}</b>
+  (Yahoo Finance üzerinde VİOP verisi sınırlı olabilir.)</div>
+{% endif %}
+
+{% if has_data %}
+<div id="chart" style="min-height:600px;"></div>
+
+<h4>İstatistikler</h4>
+<div class="gf-cards">
+  {% for label, key in [('Kapanış','Close'), ('Açılış','Open'), ('Yüksek','High'), ('Düşük','Low')] %}
+  <div class="gf-card" style="flex:1 0 160px;">
+    <div class="gf-card-name">{{ label }}</div>
+    <div class="gf-card-price">{{ '%.2f'|format(stats[key]) }}</div>
+  </div>
+  {% endfor %}
+</div>
+
+<div style="margin:16px 0;">
+  <a class="btn" href="/indir/{{ target }}.csv?period={{ period }}&interval={{ interval }}">CSV indir</a>
+</div>
+
+<h4>Teknik analiz özeti</h4>
+<div class="gf-table-wrap">
+  <table class="gf-table">
+    <thead><tr><th>İndikatör</th><th>Değerler</th><th>Sinyal</th></tr></thead>
+    <tbody>
+    {% for name, row in signals.items() %}
+      <tr><td>{{ name }}</td><td class="gf-source">{{ row.degerler }}</td>
+          <td>{{ signal_badge(row.sinyal) | safe }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="gf-empty">{{ target }} için veri bulunamadı.</div>
+{% endif %}
+
+{% endblock %}
+{% block scripts %}
+{% if has_data %}
+<script>
+window.addEventListener('load', () => drawChart('chart',
+  '/api/grafik?symbol={{ target }}&period={{ period }}&interval={{ interval }}{% for i in indicators %}&ind={{ i }}{% endfor %}'));
+</script>
+{% endif %}
+{% endblock %}

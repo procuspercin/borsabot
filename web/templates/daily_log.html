@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Günlük kayıt · BorsaBot Finans{% endblock %}
+{% block content %}
+
+<div style="display:flex;align-items:center;gap:16px;">
+  <a class="btn" href="/">← Geri</a><h3 style="margin:0;">Günlük kayıt / Excel tablosu</h3>
+</div>
+
+{% if auto_running %}<div class="gf-flash info"><span class="gf-spinner"></span>
+  Otomatik günlük kayıt arka planda hazırlanıyor…</div>{% endif %}
+{% if auto_result and auto_result.inserted %}
+<div class="gf-flash ok">⏰ Otomatik kayıt yapıldı (18:30 sonrası):
+  {{ auto_result.inserted }} eklendi, {{ auto_result.skipped }} atlandı,
+  {{ auto_result.failed|length }} başarısız.</div>
+{% endif %}
+
+<div class="gf-cards" style="margin:14px 0;">
+  <div class="gf-card" style="flex:1 0 180px;"><div class="gf-card-name">Bugün (TR)</div>
+    <div class="gf-card-price">{{ today }}</div></div>
+  <div class="gf-card" style="flex:1 0 180px;"><div class="gf-card-name">Saat (TR)</div>
+    <div class="gf-card-price">{{ now.strftime('%H:%M') }}</div></div>
+  <div class="gf-card" style="flex:1 0 180px;"><div class="gf-card-name">Takipteki hisseler</div>
+    <div class="gf-card-price">{{ symbols|length }}</div></div>
+  <div class="gf-card" style="flex:1 0 180px;"><div class="gf-card-name">Toplam kayıt</div>
+    <div class="gf-card-price">{{ total }}</div></div>
+</div>
+
+<details class="gf-details">
+  <summary>Takip edilen hisse listesi (Excel + ek hisseler)</summary>
+  <div class="gf-source" style="margin-top:8px;">{{ symbols|join(', ') }}</div>
+</details>
+
+<h4>Manuel kayıt</h4>
+<form method="post" action="/gunluk-kayit/calistir" style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;">
+  <button class="primary" type="submit">Bugünün verilerini kaydet</button>
+  <label style="display:inline-flex;align-items:center;gap:7px;margin:0;">
+    <input type="checkbox" name="overwrite" value="1" style="width:auto;">
+    Bugünkü mevcut kayıtları güncelle</label>
+  <span class="gf-source">Otomatik kayıt: Türkiye saati ile <b>18:30</b> sonrasında bir kez çalışır.</span>
+</form>
+
+<hr class="gf-divider">
+<h4>Tablo</h4>
+<form method="get" style="display:grid;grid-template-columns:1fr 1fr 2fr;gap:16px;">
+  <div><label>Tarihe göre filtrele</label>
+    <select name="tarih" onchange="this.form.submit()">
+      <option value="">(Tümü)</option>
+      {% for d in dates %}<option value="{{ d }}" {{ 'selected' if d == tarih }}>{{ d }}</option>{% endfor %}
+    </select></div>
+  <div><label>Hisseye göre filtrele</label>
+    <select name="hisse" onchange="this.form.submit()">
+      <option value="">(Tümü)</option>
+      {% for s in syms %}<option value="{{ s }}" {{ 'selected' if s == hisse }}>{{ s }}</option>{% endfor %}
+    </select></div>
+  <div><label>Metin ara (sinyallerde)</label>
+    <input type="text" name="ara" value="{{ ara }}" placeholder="AL, SAT, BEKLE…"></div>
+</form>
+
+{% if rows %}
+<div class="gf-source" style="margin:12px 0 6px;">{{ rows|length }} satır</div>
+<div class="gf-table-wrap" style="max-height:600px;overflow-y:auto;">
+  <table class="gf-table">
+    <thead><tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+    <tbody>{% for r in rows %}<tr>{% for c in columns %}<td>{{ r[c] }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+  </table>
+</div>
+{% else %}
+<div class="gf-empty">Kayıt bulunamadı.</div>
+{% endif %}
+
+{% endblock %}

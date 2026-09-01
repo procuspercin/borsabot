@@ -1,0 +1,38 @@
+<aside id="side-lists">
+  <div class="gf-side-title">☰ Listeler</div>
+
+  <div class="gf-side-sub">İzleme listesi</div>
+  {% if state.watchlist %}
+    {% for sym in state.watchlist %}
+      {% set q = quotes.get(sym) %}
+      <button class="gf-row-btn" hx-get="/p/ozet/{{ sym }}" hx-target="#modal">
+        {% if q %}{{ quote_row_html(sym.replace('.IS',''), '', q) | safe }}
+        {% else %}<div class="gf-row"><span class="gf-row-sym">{{ sym.replace('.IS','') }}</span>
+                   <span class="gf-source">veri yok</span></div>{% endif %}
+      </button>
+    {% endfor %}
+  {% else %}
+    <div class="gf-empty">Bu liste boş.</div>
+  {% endif %}
+
+  <form hx-post="/p/izleme-ekle" hx-target="#side-lists" hx-swap="outerHTML" style="margin:10px 0 18px;">
+    <select name="symbol" onchange="this.form.requestSubmit()">
+      <option value="">+ İzleme listesine ekle</option>
+      {% for s in BIST100_SYMBOLS %}
+        {% if s not in state.watchlist %}<option value="{{ s }}">{{ s.replace('.IS','') }}</option>{% endif %}
+      {% endfor %}
+    </select>
+  </form>
+
+  {% if state.last_viewed %}
+  <div class="gf-side-sub">Son bakılanlar</div>
+  {% for sym in state.last_viewed[:6] %}
+    {% set q = quotes.get(sym) %}
+    {% if q %}<a href="/hisse/{{ sym }}" style="text-decoration:none;">{{ quote_row_html(sym.replace('.IS',''), '', q) | safe }}</a>{% endif %}
+  {% endfor %}
+  {% endif %}
+
+  <div class="gf-side-sub">Hisse senedi sektörleri</div>
+  {% set rows = [] %}
+  {% for tkr, name in SECTOR_INDICES %}{% if tkr in quotes %}{{ quote_row_html(tkr.replace('.IS',''), name, quotes[tkr]) | safe }}{% endif %}{% endfor %}
+</aside>

@@ -21,6 +21,34 @@
 
 <script>
 function closeModal() { document.getElementById('modal').innerHTML = ''; }
+
+// htmx yalnızca 2xx yanıtlarda içerik değiştirir; hata durumunda hiçbir şey
+// olmuyor ve kullanıcı isteğin düştüğünü anlamıyordu. Kısa bir uyarı göster.
+document.body.addEventListener('htmx:responseError', function (e) {
+  const code = e.detail.xhr.status;
+  const msg = code === 429
+    ? 'Çok sık istek gönderildi. Birkaç saniye sonra tekrar dene.'
+    : 'İstek tamamlanamadı (hata ' + code + '). Tekrar dener misin?';
+  showToast(msg);
+});
+document.body.addEventListener('htmx:sendError', function () {
+  showToast('Sunucuya ulaşılamadı. Bağlantını kontrol et.');
+});
+
+let toastTimer;
+function showToast(text) {
+  let el = document.getElementById('gf-toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'gf-toast';
+    el.className = 'gf-toast';
+    document.body.appendChild(el);
+  }
+  el.textContent = text;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 5000);
+}
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
 // Plotly figürünü sunucudan JSON olarak alıp çizer.

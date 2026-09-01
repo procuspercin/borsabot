@@ -302,3 +302,14 @@ select[multiple] { background-image: none; padding-right: 16px; }
 .gf-msg-src a { display: block; font-size: .74rem; color: var(--gf-blue);
                 text-decoration: none; margin-top: 3px; }
 .gf-msg-src a:hover { text-decoration: underline; }
+
+
+/* Kısa uyarı balonu (hız sınırı, bağlantı hatası vb.) */
+.gf-toast {
+    position: fixed; left: 50%; bottom: 28px; transform: translate(-50%, 12px);
+    background: var(--gf-surface-2); color: var(--gf-text);
+    border: 1px solid var(--gf-border); border-radius: 100px;
+    padding: 11px 22px; font-size: .88rem; z-index: 90;
+    opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
+}
+.gf-toast.show { opacity: 1; transform: translate(-50%, 0); }

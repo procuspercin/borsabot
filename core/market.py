@@ -926,6 +926,22 @@ def ask_gemini(history: list, context_text: str):
     except Exception as e:
         return None, f"Bağlantı hatası: {e}"
 
+    if r.status_code in (401, 403):
+        # Anahtar geçersizse istek modele hiç ulaşmadı; günlük hakkı geri ver.
+        with _gemini_lock:
+            if _gemini_usage["times"]:
+                _gemini_usage["times"].pop()
+            _gemini_usage["count"] = max(0, _gemini_usage["count"] - 1)
+        return None, (
+            "Gemini API anahtarı geçersiz. Kalıcı bir anahtar için "
+            "aistudio.google.com/apikey adresinden yeni anahtar oluşturup "
+            "sunucuda .streamlit/secrets.toml içine yaz. Geçerli anahtarlar "
+            "\"AIza\" ile başlar ve 39 karakterdir."
+        )
+
+    if r.status_code == 429:
+        return None, "Google tarafında kota doldu; bir süre sonra tekrar dene."
+
     if r.status_code != 200:
         detail = ""
         try:

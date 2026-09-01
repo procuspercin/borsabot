@@ -1,59 +1,88 @@
 <section id="ai-panel">
-  <div class="gf-side-title">✨ Teknik Analiz Asistanı</div>
-  <div class="gf-source" style="padding-left:4px;">Konu: <b>{{ ai.short }}</b>{% if ai.provider %} · {{ {"vertex":"Vertex AI","openai":"LLM","gemini":"Gemini"}.get(ai.provider, ai.provider) }}{% endif %}</div>
+  <header class="gf-ai-head">
+    <div class="gf-ai-avatar">✨</div>
+    <div class="gf-ai-title">
+      <b>Teknik Analiz Asistanı</b>
+      <span class="gf-source">{{ ai.short }}{% if ai.provider %} · {{
+        {"vertex":"Vertex AI","openai":"LLM","gemini":"Gemini"}.get(ai.provider, ai.provider) }}{% endif %}</span>
+    </div>
+    {% if ai.history %}
+    <button class="gf-ai-clear" title="Sohbeti temizle"
+            hx-post="/p/asistan/{{ ai.symbol }}/temizle"
+            hx-target="#ai-panel" hx-swap="outerHTML">⟲</button>
+    {% endif %}
+  </header>
 
   {% if not ai.provider %}
-    <div class="gf-panel" style="padding:14px 16px;margin-top:10px;">
-      <div class="gf-source">Asistan için sağlayıcı tanımlı değil. Sunucuda
-      <code>.streamlit/secrets.toml</code> içine Vertex AI için
-      <code>VERTEX_PROJECT</code> + <code>VERTEX_CREDENTIALS</code>, ya da
-      Groq/OpenAI için <code>LLM_API_KEY</code> ekle.</div>
+    <div class="gf-ai-empty">
+      Asistan için sağlayıcı tanımlı değil. Sunucuda <code>secrets.toml</code> içine
+      <code>VERTEX_PROJECT</code> ya da <code>LLM_API_KEY</code> ekle.
     </div>
   {% else %}
-    {% if ai.history %}
-    <div class="gf-chat">
-      {% for msg in ai.history %}
-        <div class="gf-msg {{ 'user' if msg.role == 'user' else 'bot' }}">{{ msg.content }}
-          {% if msg.sources %}
-          <div class="gf-msg-src">
-            <div class="gf-source">Kaynaklar</div>
-            {% for s in msg.sources %}
-            <a href="{{ s.url }}" target="_blank" rel="noopener">{{ loop.index }}. {{ s.title }}</a>
-            {% endfor %}
-          </div>
-          {% endif %}
-        </div>
-      {% endfor %}
-    </div>
-    {% else %}
-    <div class="gf-side-sub">Hazır sorular</div>
-    <div class="gf-quick">
-      {% for q in ai.quick %}
-      <button hx-post="/p/asistan/{{ ai.symbol }}" hx-vals='{"soru": {{ q | tojson }}}'
-              hx-target="#ai-panel" hx-swap="outerHTML" hx-disabled-elt="this">{{ q }}</button>
-      {% endfor %}
-    </div>
-    {% endif %}
 
-    <form hx-post="/p/asistan/{{ ai.symbol }}" hx-target="#ai-panel" hx-swap="outerHTML"
-          hx-disabled-elt="find button, find textarea" style="margin-top:12px;">
-      <textarea name="soru" rows="2" required
-                placeholder="{{ ai.short }} hakkında teknik bir soru sor..."></textarea>
-      <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
-        <button type="submit" class="primary">Sor</button>
-        <span class="htmx-indicator gf-source"><span class="gf-spinner"></span> yorumlanıyor…</span>
+  <div class="gf-ai-body" id="ai-body">
+    {% if not ai.history %}
+      <div class="gf-ai-hello">
+        <div class="gf-ai-hello-title">{{ ai.short }} hakkında ne merak ediyorsun?</div>
+        <div class="gf-source">Teknik seviyeler, indikatörler, şirket haberleri ve KAP bildirimleri.</div>
       </div>
-    </form>
-
-    <div class="gf-source" style="padding:8px 2px;">
-{% if ai.usage.daily_left <= 0 %}<br><b>Günlük soru hakkı doldu (gece yarısı sıfırlanır).</b>
-      {% elif ai.usage.minute_left <= 0 %}<br><b>Dakikalık limit doldu, birazdan tekrar dene.</b>
-      {% elif ai.usage.daily_left <= 20 %}<br><b>Bugün kalan soru hakkı: {{ ai.usage.daily_left }}</b>{% endif %}
-    </div>
-
-    {% if ai.history %}
-    <button hx-post="/p/asistan/{{ ai.symbol }}/temizle" hx-target="#ai-panel" hx-swap="outerHTML"
-            style="width:100%;">Sohbeti temizle</button>
+      <div class="gf-ai-chips">
+        {% for q in ai.quick %}
+        <button hx-post="/p/asistan/{{ ai.symbol }}" hx-vals='{"soru": {{ q | tojson }}}'
+                hx-target="#ai-panel" hx-swap="outerHTML"
+                hx-disabled-elt="this">{{ q }}</button>
+        {% endfor %}
+      </div>
+    {% else %}
+      {% for msg in ai.history %}
+        {% if msg.role == 'user' %}
+          <div class="gf-bubble user">{{ msg.content }}</div>
+        {% else %}
+          <div class="gf-bubble bot">
+            <div class="gf-bubble-text">{{ msg.content }}</div>
+            {% if msg.sources %}
+            <details class="gf-bubble-src">
+              <summary>{{ msg.sources|length }} kaynak</summary>
+              {% for s in msg.sources %}
+              <a href="{{ s.url }}" target="_blank" rel="noopener">{{ s.title }}</a>
+              {% endfor %}
+            </details>
+            {% endif %}
+          </div>
+        {% endif %}
+      {% endfor %}
     {% endif %}
+
+    <div class="gf-bubble bot htmx-indicator gf-typing">
+      <span></span><span></span><span></span>
+    </div>
+  </div>
+
+  <form class="gf-ai-form" hx-post="/p/asistan/{{ ai.symbol }}"
+        hx-target="#ai-panel" hx-swap="outerHTML"
+        hx-disabled-elt="find button, find textarea"
+        hx-indicator="#ai-panel .gf-typing">
+    <textarea name="soru" rows="1" required autocomplete="off"
+              placeholder="{{ ai.short }} hakkında sor…"
+              oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px'"
+              onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.form.requestSubmit();}"></textarea>
+    <button type="submit" title="Gönder" aria-label="Gönder">↑</button>
+  </form>
+
+  {% if ai.usage.daily_left <= 20 or ai.usage.minute_left <= 0 %}
+  <div class="gf-ai-quota">
+    {% if ai.usage.daily_left <= 0 %}Günlük soru hakkı doldu, gece yarısı sıfırlanır.
+    {% elif ai.usage.minute_left <= 0 %}Dakikalık limit doldu, birazdan tekrar dene.
+    {% else %}Bugün kalan soru hakkı: {{ ai.usage.daily_left }}{% endif %}
+  </div>
+  {% endif %}
   {% endif %}
 </section>
+
+<script>
+  // Yeni mesaj gelince sohbetin sonuna kaydır
+  (function () {
+    const body = document.getElementById('ai-body');
+    if (body) body.scrollTop = body.scrollHeight;
+  })();
+</script>

@@ -1,5 +1,11 @@
 {% extends "base.html" %}
 {% block title %}{{ symbol.replace('.IS','') }} · BorsaBot Finans{% endblock %}
+{% block head_scripts %}
+{# plotly.py 6 grafiği ikili (dtype/bdata) dizilerle serileştiriyor; bunu
+   plotly.js 3.x çözüyor, 2.x çözemeyip sayıları yanlış okuyordu.
+   finance paketi mum + çizgi + bar içeriyor: 382 KB, tam paket 1,4 MB. #}
+<script src="https://cdn.plot.ly/plotly-finance-3.1.0.min.js" charset="utf-8"></script>
+{% endblock %}
 {% block content %}
 
 <div style="display:flex;align-items:flex-start;gap:16px;">

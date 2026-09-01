@@ -86,6 +86,17 @@ def _secret_from_file(name: str) -> str:
         import tomllib
         with open(path, "rb") as fh:
             return str(tomllib.load(fh).get(name, "") or "")
+    except ImportError:
+        # tomllib yalnızca Python 3.11+ ile geliyor; sunucudaki sanal ortam
+        # 3.10 olabilir. Dosya tek satırlık anahtar=değer olduğu için elle oku.
+        try:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                key, _, value = line.partition("=")
+                if key.strip() == name:
+                    return value.strip().strip("\"'")
+        except OSError:
+            pass
+        return ""
     except Exception:
         return ""
 

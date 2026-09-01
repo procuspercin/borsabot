@@ -9,6 +9,7 @@ numpy==1.23.5
 openpyxl==3.1.5
 setuptools==69.2.0
 requests>=2.28.0
+google-auth>=2.28.0        # Vertex AI servis hesabı ile OAuth
 python-dotenv>=0.21.0
 fake-useragent>=1.1.1
 cloudscraper>=1.2.71

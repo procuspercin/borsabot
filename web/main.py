@@ -286,7 +286,7 @@ def _ai_context(state: dict, symbol: str) -> dict:
         "short": short,
         "history": sess.chat(state, symbol),
         "quick": [q.format(s=short) for q in QUICK_QUESTIONS],
-        "has_key": bool(m.get_gemini_key()),
+        "provider": m.llm_provider(),
         "usage": m.gemini_usage(),
     }
 
@@ -307,7 +307,7 @@ def assistant(request: Request, symbol: str, soru: str = Form(...)):
             extra_ctx = m.get_analysis_context(extra)
             if extra_ctx:
                 context_text += "\n\n" + extra_ctx["text"]
-        answer, err = m.ask_gemini(history, context_text)
+        answer, err = m.ask_llm(history, context_text)
         history.append({"role": "assistant", "content": answer or f"⚠️ {err}"})
 
     return _render(request, "partials/ai_panel.html", {"ai": _ai_context(state, sym)}, sid)

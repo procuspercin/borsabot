@@ -1,12 +1,13 @@
 <section id="ai-panel">
   <div class="gf-side-title">✨ Teknik Analiz Asistanı</div>
-  <div class="gf-source" style="padding-left:4px;">Konu: <b>{{ ai.short }}</b> · Gemini</div>
+  <div class="gf-source" style="padding-left:4px;">Konu: <b>{{ ai.short }}</b>{% if ai.provider %} · {{ {"vertex":"Vertex AI","openai":"LLM","gemini":"Gemini"}.get(ai.provider, ai.provider) }}{% endif %}</div>
 
-  {% if not ai.has_key %}
+  {% if not ai.provider %}
     <div class="gf-panel" style="padding:14px 16px;margin-top:10px;">
-      <div class="gf-source">Gemini API anahtarı tanımlı değil. Sunucuda
-      <code>.streamlit/secrets.toml</code> içine <code>GEMINI_API_KEY</code> ekle
-      ya da <code>GEMINI_API_KEY</code> ortam değişkenini tanımla.</div>
+      <div class="gf-source">Asistan için sağlayıcı tanımlı değil. Sunucuda
+      <code>.streamlit/secrets.toml</code> içine Vertex AI için
+      <code>VERTEX_PROJECT</code> + <code>VERTEX_CREDENTIALS</code>, ya da
+      Groq/OpenAI için <code>LLM_API_KEY</code> ekle.</div>
     </div>
   {% else %}
     {% if ai.history %}

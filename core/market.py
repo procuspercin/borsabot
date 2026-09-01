@@ -887,22 +887,181 @@ def _gemini_acquire() -> tuple[bool, str]:
         return True, ""
 
 
+def setting(name: str, default: str = "") -> str:
+    """Ortam değişkeni, yoksa secrets.toml, yoksa varsayılan."""
+    return (os.environ.get(name, "") or _secret_from_file(name) or default).strip()
+
+
 def get_gemini_key() -> str:
-    key = os.environ.get("GEMINI_API_KEY", "") or _secret_from_file("GEMINI_API_KEY")
-    return (key or "").strip()
+    return setting("GEMINI_API_KEY")
 
 
-def ask_gemini(history: list, context_text: str):
-    """Gemini'ye teknik veri bağlamıyla soru sorar. (cevap, hata) döndürür."""
-    key = get_gemini_key()
+# --- LLM sağlayıcıları -------------------------------------------------------
+# Asistan tek bir servise bağlı kalmasın diye üç yol destekleniyor:
+#   vertex  → Vertex AI (servis hesabı ile OAuth), Google ekosisteminde kalır
+#   openai  → OpenAI uyumlu herhangi bir servis (Groq, OpenRouter, OpenAI…)
+#   gemini  → AI Studio API anahtarı (Google "AQ." geçişini tamamlayınca)
+VERTEX_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
+_vertex_lock = threading.Lock()
+_vertex_creds = {"obj": None}
+
+
+def llm_provider() -> str:
+    """Yapılandırmaya bakarak hangi sağlayıcının kullanılacağını söyler."""
+    explicit = setting("LLM_PROVIDER").lower()
+    if explicit:
+        return explicit
+    if setting("VERTEX_PROJECT"):
+        return "vertex"
+    if setting("LLM_API_KEY"):
+        return "openai"
+    if get_gemini_key():
+        return "gemini"
+    return ""
+
+
+def _vertex_token() -> str:
+    """Servis hesabından erişim jetonu üretir; süresi dolunca yeniler."""
+    from google.auth.transport.requests import Request as GoogleRequest
+    from google.oauth2 import service_account
+
+    with _vertex_lock:
+        creds = _vertex_creds["obj"]
+        if creds is None:
+            path = setting("VERTEX_CREDENTIALS") or setting("GOOGLE_APPLICATION_CREDENTIALS")
+            if not path or not Path(path).exists():
+                raise FileNotFoundError(
+                    "Vertex servis hesabı dosyası bulunamadı; VERTEX_CREDENTIALS ayarını kontrol et."
+                )
+            creds = service_account.Credentials.from_service_account_file(path, scopes=[VERTEX_SCOPE])
+            _vertex_creds["obj"] = creds
+        if not creds.valid:
+            creds.refresh(GoogleRequest())
+        return creds.token
+
+
+def _ask_vertex(system_prompt: str, history: list) -> tuple:
+    project = setting("VERTEX_PROJECT")
+    location = setting("VERTEX_LOCATION", "us-central1")
+    model = setting("VERTEX_MODEL", "gemini-2.5-flash")
+    if not project:
+        return None, "Vertex AI için VERTEX_PROJECT ayarlanmamış."
+
+    try:
+        token = _vertex_token()
+    except Exception as exc:
+        return None, f"Vertex kimlik doğrulaması başarısız: {exc}"
+
+    host = "aiplatform.googleapis.com" if location == "global" else f"{location}-aiplatform.googleapis.com"
+    url = (f"https://{host}/v1/projects/{project}/locations/{location}"
+           f"/publishers/google/models/{model}:generateContent")
+    payload = {
+        "systemInstruction": {"parts": [{"text": system_prompt}]},
+        "contents": [
+            {"role": ("user" if msg["role"] == "user" else "model"),
+             "parts": [{"text": msg["content"]}]}
+            for msg in history[-10:]
+        ],
+        "generationConfig": {"temperature": 0.4, "maxOutputTokens": 800},
+    }
+    try:
+        r = requests.post(url, headers={"Authorization": f"Bearer {token}",
+                                        "Content-Type": "application/json"},
+                          json=payload, timeout=45)
+    except Exception as exc:
+        return None, f"Bağlantı hatası: {exc}"
+
+    if r.status_code != 200:
+        try:
+            detail = r.json().get("error", {}).get("message", "")[:200]
+        except Exception:
+            detail = r.text[:200]
+        return None, f"Vertex AI hatası ({r.status_code}): {detail}"
+
+    try:
+        parts = r.json()["candidates"][0]["content"]["parts"]
+        text = "".join(p.get("text", "") for p in parts).strip()
+        return (text or None), (None if text else "Boş yanıt döndü.")
+    except Exception:
+        return None, "Yanıt çözümlenemedi."
+
+
+def _ask_openai_compatible(system_prompt: str, history: list) -> tuple:
+    key = setting("LLM_API_KEY")
     if not key:
-        return None, "Gemini API anahtarı tanımlı değil."
+        return None, "LLM_API_KEY ayarlanmamış."
+    base = setting("LLM_BASE_URL", "https://api.groq.com/openai/v1").rstrip("/")
+    model = setting("LLM_MODEL", "llama-3.3-70b-versatile")
+
+    messages = [{"role": "system", "content": system_prompt}]
+    messages += [{"role": ("user" if m["role"] == "user" else "assistant"),
+                  "content": m["content"]} for m in history[-10:]]
+    try:
+        r = requests.post(f"{base}/chat/completions",
+                          headers={"Authorization": f"Bearer {key}",
+                                   "Content-Type": "application/json"},
+                          json={"model": model, "messages": messages,
+                                "temperature": 0.4, "max_tokens": 800},
+                          timeout=45)
+    except Exception as exc:
+        return None, f"Bağlantı hatası: {exc}"
+
+    if r.status_code != 200:
+        try:
+            detail = r.json().get("error", {}).get("message", "")[:200]
+        except Exception:
+            detail = r.text[:200]
+        return None, f"LLM hatası ({r.status_code}): {detail}"
+
+    try:
+        return (r.json()["choices"][0]["message"]["content"].strip() or None), None
+    except Exception:
+        return None, "Yanıt çözümlenemedi."
+
+
+def ask_llm(history: list, context_text: str):
+    """
+    Asistan sorusunu yapılandırılmış sağlayıcıya iletir. (cevap, hata) döner.
+    Hız/kota sınırı sağlayıcıdan bağımsız olarak burada uygulanır.
+    """
+    provider = llm_provider()
+    if not provider:
+        return None, ("Asistan için sağlayıcı tanımlı değil. secrets.toml içine "
+                      "VERTEX_PROJECT (Vertex AI) ya da LLM_API_KEY (Groq/OpenAI) ekle.")
 
     allowed, limit_msg = _gemini_acquire()
     if not allowed:
         return None, limit_msg
 
     system_prompt = AI_SYSTEM_PROMPT + "\n\nGüncel teknik veriler:\n" + context_text
+
+    if provider == "vertex":
+        answer, err = _ask_vertex(system_prompt, history)
+    elif provider == "openai":
+        answer, err = _ask_openai_compatible(system_prompt, history)
+    else:
+        answer, err = _ask_gemini_api_key(system_prompt, history)
+
+    # İstek modele hiç ulaşmadıysa kotayı geri ver
+    _NOT_SENT = ("401", "403", "kimlik", "tanımlı değil", "ayarlanmamış", "bulunamadı")
+    if err and any(token in err for token in _NOT_SENT):
+        with _gemini_lock:
+            if _gemini_usage["times"]:
+                _gemini_usage["times"].pop()
+            _gemini_usage["count"] = max(0, _gemini_usage["count"] - 1)
+    return answer, err
+
+
+def ask_gemini(history: list, context_text: str):
+    """Eski ad; çağıranlar için korunuyor."""
+    return ask_llm(history, context_text)
+
+
+def _ask_gemini_api_key(system_prompt: str, history: list):
+    """AI Studio API anahtarı yolu."""
+    key = get_gemini_key()
+    if not key:
+        return None, "Gemini API anahtarı tanımlı değil."
 
     payload = {
         "system_instruction": {"parts": [{"text": system_prompt}]},

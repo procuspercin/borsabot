@@ -1,0 +1,43 @@
+<div class="gf-modal-bg" onclick="if (event.target === this) closeModal()">
+  <div class="gf-modal">
+    <button class="gf-modal-close" onclick="closeModal()">✕</button>
+    <h3 style="margin-top:0;">Benzer geçmiş örnekler</h3>
+    <div class="gf-source" style="margin-bottom:14px;">
+      {{ ticker }} · {{ label }} · modelin bugünkü yön skoru %{{ '%.1f'|format(probability * 100) }}
+    </div>
+
+    {% if events %}
+    <div id="similar-chart" style="min-height:320px;"></div>
+
+    <div class="gf-table-wrap" style="margin-top:14px;">
+      <table class="gf-table">
+        <thead><tr><th>Hisse</th><th>Tarih</th><th>Yön skoru</th>
+          <th>{{ horizon }} gün sonra</th><th>Sonuç</th></tr></thead>
+        <tbody>
+        {% for e in events %}
+          <tr>
+            <td><a href="/hisse/{{ e.ticker }}">{{ e.ticker }}</a></td>
+            <td>{{ e.date }}</td>
+            <td>%{{ '%.1f'|format(e.probability * 100) }}</td>
+            <td class="{{ 'gf-up' if e.final_pct >= 0 else 'gf-down' }}">
+              {{ '+' if e.final_pct >= 0 else '' }}{{ '%.2f'|format(e.final_pct) }}%</td>
+            <td>{{ signal_badge('AL' if e.actual_up else 'SAT') | safe }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="gf-empty">Bu vade için geçmiş örnek bulunamadı.</div>
+    {% endif %}
+  </div>
+</div>
+
+{% if chart %}
+<script>
+(function () {
+  const fig = JSON.parse({{ chart | tojson }});
+  Plotly.react('similar-chart', fig.data, fig.layout, {responsive: true, displaylogo: false});
+})();
+</script>
+{% endif %}

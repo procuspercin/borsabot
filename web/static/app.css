@@ -24,8 +24,25 @@ h4 { font-size: 1.05rem; margin: 18px 0 10px; }
 a { color: inherit; }
 
 /* Ana yerleşim: sol liste | orta içerik | sağ asistan */
-.gf-layout { display: grid; grid-template-columns: 1.25fr 3.3fr 1.45fr; gap: 22px; align-items: start; }
-@media (max-width: 1200px) { .gf-layout { grid-template-columns: 1fr; } }
+.gf-layout { display: grid; grid-template-columns: 240px minmax(0, 1fr) 320px; gap: 24px; align-items: start; }
+@media (max-width: 1400px) { .gf-layout { grid-template-columns: 220px minmax(0, 1fr); } }
+@media (max-width: 1000px) { .gf-layout { grid-template-columns: 1fr; } }
+
+/* Detay sayfası: içerik + asistan */
+.gf-layout-2 { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; align-items: start; }
+@media (max-width: 1100px) { .gf-layout-2 { grid-template-columns: 1fr; } }
+
+/* Asistan sağ sütunda kendi içinde kayar; sayfa uzayınca üstte kalır */
+#ai-panel {
+    position: sticky; top: 14px; min-width: 0;
+    max-height: calc(100vh - 28px); overflow-y: auto;
+    background: var(--gf-surface); border: 1px solid var(--gf-border);
+    border-radius: 16px; padding: 16px 18px;
+}
+#ai-panel .gf-side-title { margin-top: 0; }
+#ai-panel textarea { resize: vertical; min-height: 62px; border-radius: 14px; }
+/* Dar ekranda sağ sütun grid dışına düşer, tam genişlik alsın */
+@media (max-width: 1400px) { #ai-panel { position: static; grid-column: 1 / -1; max-height: none; } }
 
 /* ---------- Kontroller ---------- */
 button, .btn {
@@ -88,7 +105,8 @@ label { font-size: .78rem; color: var(--gf-text-dim); display: block; margin-bot
 .gf-msg p { margin: 0 0 8px; }
 .gf-msg p:last-child { margin-bottom: 0; }
 .gf-quick { display: flex; flex-direction: column; gap: 8px; }
-.gf-quick button { text-align: left; border-radius: 14px; padding: 10px 14px; font-size: .84rem; }
+.gf-quick button { text-align: left; border-radius: 14px; padding: 10px 14px; font-size: .84rem;
+                   white-space: normal; line-height: 1.35; }
 
 /* ---------- Açılır bölüm ---------- */
 details.gf-details {
@@ -194,3 +212,64 @@ hr {border-color: var(--gf-border);}
     div[role="dialog"] {background-color: var(--gf-surface) !important;
         border: 1px solid var(--gf-border) !important;
         border-radius: 20px !important;}
+
+/* ---------- Haber kartları ---------- */
+.gf-news-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.gf-news-card {
+    display: block; text-decoration: none; background: var(--gf-surface);
+    border: 1px solid var(--gf-border); border-radius: 14px; padding: 16px 18px;
+    transition: background-color .15s, border-color .15s;
+}
+.gf-news-card:hover { background: var(--gf-surface-2); border-color: #5f6368; }
+.gf-news-card-title { font-size: .95rem; line-height: 1.4; margin-bottom: 8px; }
+
+/* ---------- Açılır liste (native ok yerine kendi okumuz) ---------- */
+select {
+    appearance: none; -webkit-appearance: none;
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%239aa0a6'%3E%3Cpath d='M4.5 6.5L8 10l3.5-3.5z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 16px center; background-size: 18px;
+    padding-right: 44px; text-overflow: ellipsis;
+}
+select:hover { background-color: #303134; }
+select[multiple] { background-image: none; padding-right: 16px; }
+
+
+/* ---------- Günlük kayıt takvimi ---------- */
+.gf-cal-head { display: flex; gap: 34px; margin: 16px 0 14px; }
+.gf-cal-head div { display: flex; flex-direction: column; gap: 2px; }
+.gf-cal-head b { font-size: 1.25rem; font-weight: 500; }
+
+.gf-cal { display: flex; flex-direction: column; gap: 6px; }
+.gf-cal-row { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.gf-cal-dow div {
+    font-size: .72rem; color: var(--gf-text-dim); text-transform: uppercase;
+    letter-spacing: .05em; padding: 0 4px 2px;
+}
+.gf-cal-cell {
+    display: block; text-decoration: none; color: inherit;
+    background: var(--gf-surface); border: 1px solid var(--gf-border);
+    border-radius: 10px; padding: 8px 10px; min-height: 74px;
+}
+.gf-cal-cell.empty { background: transparent; border-color: transparent; }
+.gf-cal-cell.weekend { background: transparent; }
+.gf-cal-cell.today { border-color: var(--gf-blue); }
+.gf-cal-cell.has-data:hover { background: var(--gf-surface-2); border-color: #5f6368; }
+.gf-cal-cell.selected { background: var(--gf-surface-2); border-color: var(--gf-blue); }
+.gf-cal-day { font-size: .95rem; font-weight: 500; }
+.gf-cal-count { font-size: .72rem; color: var(--gf-text-dim); margin-top: 2px; }
+.gf-cal-bar { display: flex; gap: 2px; margin-top: 8px; height: 4px; }
+.gf-cal-bar span { border-radius: 2px; min-width: 0; }
+.gf-cal-bar .al, .gf-cal-legend i.al { background: var(--gf-green); }
+.gf-cal-bar .sat, .gf-cal-legend i.sat { background: var(--gf-red); }
+.gf-cal-bar .bekle, .gf-cal-legend i.bekle { background: var(--gf-border); }
+.gf-cal-legend { display: flex; gap: 18px; margin-top: 10px; font-size: .75rem; color: var(--gf-text-dim); }
+.gf-cal-legend i { display: inline-block; width: 18px; height: 4px; border-radius: 2px; vertical-align: 2px; margin-right: 5px; }
+
+
+/* "Benzer geçmiş" tıklanabilir bloğu */
+.gf-similar {
+    display: block; width: 100%; text-align: left; background: transparent;
+    border: none; border-radius: 8px; padding: 2px 4px; margin: 0 -4px; cursor: pointer;
+    color: inherit; font: inherit;
+}
+.gf-similar:hover { background: var(--gf-surface-2); border: none; }

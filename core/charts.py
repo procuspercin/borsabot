@@ -220,3 +220,27 @@ def _forecast_chart(data: dict):
         hovermode="x unified",
     )
     return fig
+
+
+def similar_events_chart(events: list, horizon: int):
+    """Benzer geçmiş olayların olay gününden itibaren yüzde seyri."""
+    fig = go.Figure()
+    for ev in events:
+        color = "#81c995" if ev["actual_up"] else "#f28b82"
+        fig.add_trace(go.Scatter(
+            x=ev["days"], y=ev["pct"], mode="lines",
+            name=f"{ev['ticker']} · {ev['date']}",
+            line=dict(color=color, width=1.8),
+            hovertemplate="%{y:.2f}%<extra>" + f"{ev['ticker']} {ev['date']}" + "</extra>",
+        ))
+    fig.add_hline(y=0, line_dash="dash", line_color="#5f6368", line_width=1)
+    fig.update_layout(
+        height=320, template="plotly_dark",
+        paper_bgcolor="#1e1f20", plot_bgcolor="#1e1f20",
+        margin=dict(l=0, r=10, t=6, b=30),
+        xaxis=dict(title=f"olay gününden sonraki işlem günü (0–{horizon})",
+                   showgrid=True, gridcolor="#2c2d2f"),
+        yaxis=dict(title="%", showgrid=True, gridcolor="#2c2d2f", side="right", ticksuffix="%"),
+        legend=dict(orientation="h", y=-0.28, x=0, bgcolor="rgba(0,0,0,0)", font=dict(size=10)),
+    )
+    return fig

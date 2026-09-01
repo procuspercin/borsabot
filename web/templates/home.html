@@ -48,30 +48,18 @@
     </div>
 
     <hr class="gf-divider">
-    <h4>Bugün piyasalarda neler oluyor?</h4>
-    {% for item in news %}
-    <div class="gf-news">
-      <a href="{{ safe_link(item.link) }}" target="_blank" rel="noopener">{{ item.title }}</a>
-      <div class="gf-news-time">Bloomberg HT · {{ item.published[5:16] }}</div>
+    <div style="display:flex;align-items:baseline;gap:12px;">
+      <h4 style="margin-bottom:10px;">Haberler</h4>
+      <a class="gf-source" href="/haberler" style="margin-left:auto;">tümü →</a>
     </div>
-    {% endfor %}
-
-    <hr class="gf-divider">
-    <h4>Makine öğrenmesi tahmini</h4>
-    {% if ml_tickers %}
-    <div class="gf-source" style="margin-bottom:10px;">
-      Hisseyi seç, RandomForest yön modelleri 10 / 30 / 60 / 120 / 180 işlem günü için
-      beklenen fiyat aralığını üretsin. Yatırım tavsiyesi değildir.
+    <div class="gf-news-grid">
+      {% for item in news %}
+      <a class="gf-news-card" href="{{ safe_link(item.link) }}" target="_blank" rel="noopener">
+        <div class="gf-news-card-title">{{ item.title }}</div>
+        <div class="gf-news-time">{{ item.published[5:16] }}</div>
+      </a>
+      {% endfor %}
     </div>
-    <form action="/ml-tahmin" method="get" style="display:flex;gap:12px;align-items:center;">
-      <select name="hisse" style="flex:3;">
-        {% for t in ml_tickers %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
-      </select>
-      <button class="primary" type="submit" style="flex:1;">Tahmini göster</button>
-    </form>
-    {% else %}
-    <div class="gf-empty">Tahmin modeli bulunamadı (stock_forecaster klasörü gerekli).</div>
-    {% endif %}
   </main>
 
   {% include "partials/ai_panel.html" %}

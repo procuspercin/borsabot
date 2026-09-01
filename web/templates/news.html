@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Haberler · BorsaBot Finans{% endblock %}
+{% block content %}
+<div style="display:flex;align-items:center;gap:16px;margin-bottom:6px;">
+  <a class="btn" href="/">← Geri</a><h3 style="margin:0;">Haberler</h3>
+  <span class="gf-source" style="margin-left:auto;">Bloomberg HT</span>
+</div>
+
+<div class="gf-news-grid">
+  {% for item in news %}
+  <a class="gf-news-card" href="{{ safe_link(item.link) }}" target="_blank" rel="noopener">
+    <div class="gf-news-card-title">{{ item.title }}</div>
+    <div class="gf-news-time">{{ item.published[5:16] }}</div>
+  </a>
+  {% endfor %}
+</div>
+{% endblock %}

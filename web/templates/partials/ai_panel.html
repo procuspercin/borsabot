@@ -36,8 +36,7 @@
     </form>
 
     <div class="gf-source" style="padding:8px 2px;">
-      Başka bir hisseyi sorarsan onun teknik verisini de getiririm. Yatırım tavsiyesi değildir.
-      {% if ai.usage.daily_left <= 0 %}<br><b>Günlük soru hakkı doldu (gece yarısı sıfırlanır).</b>
+{% if ai.usage.daily_left <= 0 %}<br><b>Günlük soru hakkı doldu (gece yarısı sıfırlanır).</b>
       {% elif ai.usage.minute_left <= 0 %}<br><b>Dakikalık limit doldu, birazdan tekrar dene.</b>
       {% elif ai.usage.daily_left <= 20 %}<br><b>Bugün kalan soru hakkı: {{ ai.usage.daily_left }}</b>{% endif %}
     </div>

@@ -3,69 +3,85 @@
 {% block content %}
 
 <div style="display:flex;align-items:center;gap:16px;">
-  <a class="btn" href="/">← Geri</a><h3 style="margin:0;">Günlük kayıt / Excel tablosu</h3>
+  <a class="btn" href="/">← Geri</a><h3 style="margin:0;">Günlük kayıt</h3>
+  <form method="post" action="/gunluk-kayit/yenile" style="margin-left:auto;">
+    <button type="submit">Şimdi güncelle</button>
+  </form>
 </div>
 
-{% if auto_running %}<div class="gf-flash info"><span class="gf-spinner"></span>
-  Otomatik günlük kayıt arka planda hazırlanıyor…</div>{% endif %}
-{% if auto_result and auto_result.inserted %}
-<div class="gf-flash ok">⏰ Otomatik kayıt yapıldı (18:30 sonrası):
-  {{ auto_result.inserted }} eklendi, {{ auto_result.skipped }} atlandı,
-  {{ auto_result.failed|length }} başarısız.</div>
+{% if backfill.running %}
+<div class="gf-flash info"><span class="gf-spinner"></span>
+  Son {{ 30 }} günün verisi arka planda tamamlanıyor{% if backfill.progress %} — {{ backfill.progress }}{% endif %}.
+  Sayfayı yenileyerek ilerlemeyi görebilirsin.</div>
+{% elif backfill.result and backfill.result.inserted %}
+<div class="gf-flash ok">Son {{ backfill.result.days }} gün tamamlandı:
+  {{ backfill.result.inserted }} kayıt eklendi, {{ backfill.result.skipped }} zaten vardı.</div>
 {% endif %}
 
-<div class="gf-cards" style="margin:14px 0;">
-  <div class="gf-card" style="flex:1 0 180px;"><div class="gf-card-name">Bugün (TR)</div>
-    <div class="gf-card-price">{{ today }}</div></div>
-  <div class="gf-card" style="flex:1 0 180px;"><div class="gf-card-name">Saat (TR)</div>
-    <div class="gf-card-price">{{ now.strftime('%H:%M') }}</div></div>
-  <div class="gf-card" style="flex:1 0 180px;"><div class="gf-card-name">Takipteki hisseler</div>
-    <div class="gf-card-price">{{ symbols|length }}</div></div>
-  <div class="gf-card" style="flex:1 0 180px;"><div class="gf-card-name">Toplam kayıt</div>
-    <div class="gf-card-price">{{ total }}</div></div>
+<div class="gf-cal-head">
+  <div><span class="gf-source">Takipteki hisse</span><b>{{ symbols|length }}</b></div>
+  <div><span class="gf-source">Toplam kayıt</span><b>{{ total }}</b></div>
+  <div><span class="gf-source">Saat (TR)</span><b>{{ now.strftime('%H:%M') }}</b></div>
 </div>
 
-<details class="gf-details">
-  <summary>Takip edilen hisse listesi (Excel + ek hisseler)</summary>
-  <div class="gf-source" style="margin-top:8px;">{{ symbols|join(', ') }}</div>
-</details>
-
-<h4>Manuel kayıt</h4>
-<form method="post" action="/gunluk-kayit/calistir" style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;">
-  <button class="primary" type="submit">Bugünün verilerini kaydet</button>
-  <label style="display:inline-flex;align-items:center;gap:7px;margin:0;">
-    <input type="checkbox" name="overwrite" value="1" style="width:auto;">
-    Bugünkü mevcut kayıtları güncelle</label>
-  <span class="gf-source">Otomatik kayıt: Türkiye saati ile <b>18:30</b> sonrasında bir kez çalışır.</span>
-</form>
+<div class="gf-cal">
+  <div class="gf-cal-row gf-cal-dow">
+    {% for d in ['Pzt','Sal','Çar','Per','Cum','Cmt','Paz'] %}<div>{{ d }}</div>{% endfor %}
+  </div>
+  {% for week in weeks %}
+  <div class="gf-cal-row">
+    {% for c in week %}
+      {% if c.future %}
+        <div class="gf-cal-cell empty"></div>
+      {% elif c.stats %}
+        <a class="gf-cal-cell has-data {{ 'selected' if c.iso == tarih }} {{ 'today' if c.is_today }}"
+           href="/gunluk-kayit?tarih={{ c.iso }}">
+          <div class="gf-cal-day">{{ c.day }}</div>
+          <div class="gf-cal-count">{{ c.stats.count }} kayıt</div>
+          <div class="gf-cal-bar">
+            <span class="al" style="flex:{{ c.stats.al }};"></span>
+            <span class="sat" style="flex:{{ c.stats.sat }};"></span>
+            <span class="bekle" style="flex:{{ c.stats.count - c.stats.al - c.stats.sat }};"></span>
+          </div>
+        </a>
+      {% else %}
+        <div class="gf-cal-cell {{ 'weekend' if c.weekend }} {{ 'today' if c.is_today }}">
+          <div class="gf-cal-day">{{ c.day }}</div>
+        </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+  {% endfor %}
+</div>
+<div class="gf-cal-legend">
+  <span><i class="al"></i> AL</span><span><i class="sat"></i> SAT</span><span><i class="bekle"></i> BEKLE</span>
+</div>
 
 <hr class="gf-divider">
-<h4>Tablo</h4>
-<form method="get" style="display:grid;grid-template-columns:1fr 1fr 2fr;gap:16px;">
-  <div><label>Tarihe göre filtrele</label>
-    <select name="tarih" onchange="this.form.submit()">
-      <option value="">(Tümü)</option>
-      {% for d in dates %}<option value="{{ d }}" {{ 'selected' if d == tarih }}>{{ d }}</option>{% endfor %}
-    </select></div>
-  <div><label>Hisseye göre filtrele</label>
-    <select name="hisse" onchange="this.form.submit()">
-      <option value="">(Tümü)</option>
+
+<div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;">
+  <h4 style="margin:0;">{{ tarih or 'Tüm kayıtlar' }}</h4>
+  {% if tarih %}<a class="gf-source" href="/gunluk-kayit?tarih=">tüm günler →</a>{% endif %}
+  <form method="get" style="margin-left:auto;display:flex;gap:12px;">
+    <input type="hidden" name="tarih" value="{{ tarih }}">
+    <select name="hisse" onchange="this.form.submit()" style="min-width:170px;">
+      <option value="">Tüm hisseler</option>
       {% for s in syms %}<option value="{{ s }}" {{ 'selected' if s == hisse }}>{{ s }}</option>{% endfor %}
-    </select></div>
-  <div><label>Metin ara (sinyallerde)</label>
-    <input type="text" name="ara" value="{{ ara }}" placeholder="AL, SAT, BEKLE…"></div>
-</form>
+    </select>
+    <input type="text" name="ara" value="{{ ara }}" placeholder="AL, SAT, BEKLE…" style="max-width:200px;">
+  </form>
+</div>
 
 {% if rows %}
-<div class="gf-source" style="margin:12px 0 6px;">{{ rows|length }} satır</div>
-<div class="gf-table-wrap" style="max-height:600px;overflow-y:auto;">
+<div class="gf-source" style="margin:10px 0 6px;">{{ rows|length }} satır</div>
+<div class="gf-table-wrap" style="max-height:620px;overflow-y:auto;">
   <table class="gf-table">
     <thead><tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}</tr></thead>
     <tbody>{% for r in rows %}<tr>{% for c in columns %}<td>{{ r[c] }}</td>{% endfor %}</tr>{% endfor %}</tbody>
   </table>
 </div>
 {% else %}
-<div class="gf-empty">Kayıt bulunamadı.</div>
+<div class="gf-empty">Bu gün için kayıt yok.</div>
 {% endif %}
 
 {% endblock %}

@@ -9,7 +9,7 @@ tam sayfa yerine yalnızca ilgili parçayı günceller.
 from __future__ import annotations
 
 import io
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 import plotly.io as pio
@@ -104,8 +104,7 @@ def home(request: Request):
         "state": state,
         "gainers": movers.head(n_side).to_dict("records"),
         "losers": movers.tail(n_side).iloc[::-1].to_dict("records"),
-        "news": m.get_bloomberg_news()[:10],
-        "ml_tickers": m.ml_supported_tickers(),
+        "news": m.get_bloomberg_news()[:6],
         "ai": _ai_context(state, state["watchlist"][0] if state["watchlist"] else "THYAO.IS"),
     }, sid)
 
@@ -201,12 +200,15 @@ def _fix_interval(period: str, interval: str) -> tuple[str, str | None]:
 @app.get("/hisse/{symbol}", response_class=HTMLResponse)
 def detail(request: Request, symbol: str,
            period: str = "1y", interval: str = "1d",
-           ind: list[str] = Query(default=["MA20", "MA50"]),
+           ind: list[str] = Query(default=["MA20", "MA50"]),   # boş liste de geçerli
            vade: str = "Spot (Hisse)"):
     sid, state = _session(request)
     sym = _normalize(symbol)
     sess.remember_symbol(state, sym)
 
+    # Form her zaman boş bir "ind" gönderiyor; böylece hiç indikatör seçilmediğinde
+    # FastAPI varsayılana dönmüyor ve sade fiyat grafiği görülebiliyor.
+    ind = [i for i in ind if i]
     interval, notice = _fix_interval(period, interval)
     futures = _futures_map(sym)
     target = futures.get(vade, sym)
@@ -241,6 +243,7 @@ def detail(request: Request, symbol: str,
 def chart_json(symbol: str, period: str = "1y", interval: str = "1d",
                ind: list[str] = Query(default=["MA20", "MA50"])):
     """Mum grafiğini plotly JSON'u olarak döndürür; çizimi tarayıcı yapar."""
+    ind = [i for i in ind if i]
     interval, _ = _fix_interval(period, interval)
     df = m.get_stock_data(_normalize(symbol), period, interval)
     if df is None or df.empty:
@@ -340,67 +343,105 @@ def forecast(request: Request, hisse: str = ""):
 
 
 # --------------------------------------------------------------------------- #
-# Toplu analiz
-# --------------------------------------------------------------------------- #
-
-@app.get("/toplu-analiz", response_class=HTMLResponse)
-def bulk(request: Request, sembol: list[str] = Query(default=[])):
-    sid, state = _session(request)
-    rows = []
-    for sym in sembol[:40]:
-        df = m.get_stock_data(_normalize(sym), "1y", "1d")
-        if df is None or df.empty:
-            continue
-        signals = m._signals_df_to_dict(m.calculate_technical_signals(df))
-        close = df["Close"].iloc[-1]
-        rows.append({
-            "Sembol": sym.replace(".IS", ""),
-            "Son Fiyat": float(close.iloc[0] if isinstance(close, pd.Series) else close),
-            "signals": signals,
-            "genel": m._summarize_general(signals),
-        })
-    return _render(request, "bulk.html",
-                   {"rows": rows, "selected": sembol, "state": state}, sid)
-
-
-# --------------------------------------------------------------------------- #
 # Günlük kayıt
 # --------------------------------------------------------------------------- #
 
 @app.get("/gunluk-kayit", response_class=HTMLResponse)
 def daily_log_page(request: Request, tarih: str = "", hisse: str = "", ara: str = ""):
     sid, state = _session(request)
-    m.maybe_run_auto_capture()
     symbols = dl.get_target_symbols()
+    # Son 1 ay arka planda tamamlanır; kullanıcının elle bir şey yapması gerekmez.
+    m.ensure_last_month(symbols)
+
     now = dl.now_istanbul()
     df = dl.fetch_all()
-    if df is not None and not df.empty:
+    has_rows = df is not None and not df.empty
+
+    per_day: dict[str, dict] = {}
+    if has_rows:
+        for date_str, group in df.groupby(df["Tarih"].astype(str)):
+            signals = group["Genel Sinyal"].astype(str) if "Genel Sinyal" in group else pd.Series(dtype=str)
+            per_day[date_str] = {
+                "count": len(group),
+                "al": int(signals.str.contains("AL").sum()),
+                "sat": int(signals.str.contains("SAT").sum()),
+            }
+
+    # Varsayılan gün: veri olan en yeni gün
+    if not tarih and per_day:
+        tarih = max(per_day)
+
+    table = df
+    if has_rows:
         if tarih:
-            df = df[df["Tarih"].astype(str) == tarih]
+            table = table[table["Tarih"].astype(str) == tarih]
         if hisse:
-            df = df[df["Hisse"].astype(str) == hisse]
+            table = table[table["Hisse"].astype(str) == hisse]
         if ara:
-            mask = df.apply(lambda r: ara.lower() in " ".join(map(str, r.values)).lower(), axis=1)
-            df = df[mask]
+            mask = table.apply(lambda r: ara.lower() in " ".join(map(str, r.values)).lower(), axis=1)
+            table = table[mask]
+
     return _render(request, "daily_log.html", {
         "symbols": symbols, "now": now, "today": now.date().isoformat(),
-        "rows": df.to_dict("records") if df is not None and not df.empty else [],
-        "columns": list(df.columns) if df is not None and not df.empty else [],
-        "dates": dl.distinct_dates(), "syms": dl.distinct_symbols(),
+        "weeks": _calendar_weeks(now.date(), per_day, m.BACKFILL_DAYS),
+        "per_day": per_day,
+        "rows": table.to_dict("records") if has_rows and not table.empty else [],
+        "columns": list(df.columns) if has_rows else [],
+        "syms": dl.distinct_symbols(),
         "tarih": tarih, "hisse": hisse, "ara": ara,
         "total": dl.total_record_count(),
-        "auto_running": m.auto_capture_running(),
-        "auto_result": m.pop_auto_capture_result(),
+        "backfill": m.backfill_status(),
         "state": state,
     }, sid)
 
 
-@app.post("/gunluk-kayit/calistir")
-def daily_log_run(request: Request, overwrite: str = Form("")):
-    symbols = dl.get_target_symbols()
-    if symbols:
-        m.run_daily_capture(symbols, overwrite=bool(overwrite))
+def _calendar_weeks(today: date, per_day: dict, days: int) -> list[list[dict]]:
+    """
+    Son `days` günü kapsayan, pazartesiyle başlayan hafta satırları üretir.
+    Her hücre: tarih, o güne ait kayıt özeti, bugün mü, aralık dışında mı.
+    """
+    first = today - timedelta(days=days)
+    first -= timedelta(days=first.weekday())          # haftanın başına hizala
+    weeks, cursor = [], first
+    while cursor <= today:
+        week = []
+        for _ in range(7):
+            iso = cursor.isoformat()
+            week.append({
+                "date": cursor, "iso": iso, "day": cursor.day,
+                "stats": per_day.get(iso),
+                "is_today": cursor == today,
+                "future": cursor > today,
+                "weekend": cursor.weekday() >= 5,
+            })
+            cursor += timedelta(days=1)
+        weeks.append(week)
+    return weeks
+
+
+@app.post("/gunluk-kayit/yenile")
+def daily_log_refresh(request: Request):
+    m.ensure_last_month(dl.get_target_symbols(), force=True)
     return RedirectResponse("/gunluk-kayit", status_code=303)
+
+
+@app.get("/p/benzer/{ticker}/{horizon}", response_class=HTMLResponse)
+def similar_events(request: Request, ticker: str, horizon: int, p: float = 0.5):
+    """Modelin bugünkü olasılığına en yakın 5 geçmiş örnek ve sonraki seyirleri."""
+    sid, state = _session(request)
+    events = m.similar_past_events(ticker, horizon, p, limit=5)
+    chart = pio.to_json(charts.similar_events_chart(events, horizon), remove_uids=True) if events else None
+    return _render(request, "partials/similar.html", {
+        "ticker": ticker.upper().replace(".IS", ""), "horizon": horizon,
+        "probability": p, "events": events, "chart": chart,
+        "label": m.HORIZON_LABELS.get(horizon, f"{horizon} gün"),
+    }, sid)
+
+
+@app.get("/haberler", response_class=HTMLResponse)
+def news_page(request: Request):
+    sid, state = _session(request)
+    return _render(request, "news.html", {"news": m.get_bloomberg_news(), "state": state}, sid)
 
 
 @app.get("/arama")

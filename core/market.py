@@ -927,6 +927,85 @@ def ml_forecast(ticker: str):
     return _run_forecaster([ticker.replace(".IS", "")], timeout=300)
 
 
+@ttl_cache(3600)
+def _walk_forward_table():
+    """
+    Modelin yürüyen-pencere tahminleri (tarih, hisse, olasılık, gerçekleşen yön).
+    "Benzer geçmiş" penceresinin kaynağı.
+    """
+    path = Path(FORECASTER_DIR) / "models" / "direction_walk_forward_predictions.csv"
+    if not path.exists():
+        return None
+    try:
+        df = pd.read_csv(path, parse_dates=["Date"])
+    except Exception:
+        return None
+    return df
+
+
+@ttl_cache(3600)
+def _raw_prices(ticker: str):
+    """stock_forecaster'ın ham fiyat dosyası (kapanış serisi)."""
+    path = Path(FORECASTER_DIR) / "data" / "raw" / f"{ticker}.csv"
+    if not path.exists():
+        return None
+    try:
+        df = pd.read_csv(path, parse_dates=["Date"], index_col="Date").sort_index()
+    except Exception:
+        return None
+    close = pd.to_numeric(df.get("Close"), errors="coerce").dropna()
+    return close if len(close) else None
+
+
+def similar_past_events(ticker: str, horizon: int, probability: float, limit: int = 5) -> list[dict]:
+    """
+    Modelin bugünkü olasılığına en yakın geçmiş örnekleri bulur ve her biri için
+    olay gününden itibaren `horizon` işlem günlük fiyat seyrini (yüzde olarak)
+    döndürür. Kalibrasyon tüm hisseleri kapsadığı için arama da öyle yapılır;
+    aynı hissedeki örnekler eşit yakınlıkta öne alınır.
+    """
+    table = _walk_forward_table()
+    if table is None:
+        return []
+
+    subset = table[table["Horizon"] == horizon].copy()
+    if subset.empty:
+        return []
+
+    code = ticker.upper().replace(".IS", "")
+    subset["distance"] = (subset["P_UP"] - probability).abs()
+    # Aynı hisse eşitlikte öne gelsin
+    subset["same"] = (subset["Ticker"] == code).astype(int)
+    subset = subset.sort_values(["distance", "same"], ascending=[True, False]).head(limit * 4)
+
+    events = []
+    for _, row in subset.iterrows():
+        close = _raw_prices(str(row["Ticker"]))
+        if close is None:
+            continue
+        start = pd.Timestamp(row["Date"])
+        after = close[close.index >= start]
+        if len(after) < 2:
+            continue
+        path = after.iloc[: horizon + 1]
+        base = float(path.iloc[0])
+        if not base:
+            continue
+        events.append({
+            "ticker": str(row["Ticker"]),
+            "date": start.date().isoformat(),
+            "probability": float(row["P_UP"]),
+            "actual_up": bool(int(row["actual"])),
+            "days": list(range(len(path))),
+            "pct": [round((float(v) / base - 1) * 100, 2) for v in path],
+            "final_pct": round((float(path.iloc[-1]) / base - 1) * 100, 2),
+            "complete": len(path) == horizon + 1,
+        })
+        if len(events) >= limit:
+            break
+    return events
+
+
 def update_forecaster_data():
     """Modelin kullandığı ham fiyat verisini yeniler (hisseler + BIST 100)."""
     py = _forecaster_python()
@@ -945,7 +1024,7 @@ def update_forecaster_data():
     return logs
 
 
-def _forecast_card_html(f: dict) -> str:
+def _forecast_card_html(f: dict, ticker: str = "") -> str:
     med = f["median_return"]
     cls = trend_class(med * 100)
     sign = "+" if med >= 0 else ""
@@ -956,9 +1035,12 @@ def _forecast_card_html(f: dict) -> str:
   <div class="gf-card-abs">tipik (medyan) beklenti</div>
   <div class="gf-card-chg {cls}">{sign}{med * 100:.2f}% {trend_arrow(med)}</div>
   <div style="margin-top:10px;border-top:1px solid var(--gf-border);padding-top:8px;">
-    <div class="gf-source">Benzer geçmişte yükseliş oranı</div>
-    <div style="font-size:.95rem;margin-top:2px;">%{f['actual_up'] * 100:.1f}
-      <span class="gf-source">({f['samples']:,} örnek)</span></div>
+    <button class="gf-similar" hx-get="/p/benzer/{ticker}/{f['horizon']}?p={f['raw_score']}"
+            hx-target="#modal" title="En yakın 5 geçmiş örneği gör">
+      <div class="gf-source">Benzer geçmişte yükseliş oranı ›</div>
+      <div style="font-size:.95rem;margin-top:2px;">%{f['actual_up'] * 100:.1f}
+        <span class="gf-source">({f['samples']:,} örnek)</span></div>
+    </button>
     <div class="gf-source" style="margin-top:8px;">Olası aralık (P25 – P75)</div>
     <div style="font-size:.9rem;margin-top:2px;">{fmt_price(f['low_price'])} – {fmt_price(f['high_price'])}</div>
     <div class="gf-source" style="margin-top:8px;">Model yön skoru: %{f['raw_score'] * 100:.1f}</div>
@@ -1244,6 +1326,132 @@ def compute_daily_record(symbol: str) -> dict | None:
         'kaydedilme_zamani': kaydedilme,
     }
     return record
+
+
+def compute_records_for_history(symbol: str, days: int = 30) -> list[dict]:
+    """
+    Son `days` takvim günü için, o günün kapanışına kadarki veriyle hesaplanmış
+    günlük kayıtları üretir. Geçmişe dönük doldurma (backfill) için kullanılır:
+    her işlem günü, o gün bilinen bilgiyle değerlendirilir — sonraki günlerin
+    verisi sinyallere sızmaz.
+    """
+    yf_symbol = symbol if symbol.endswith(".IS") else f"{symbol}.IS"
+    df = get_stock_data(yf_symbol, "2y", "1d")
+    if df is None or df.empty:
+        return []
+
+    cutoff = pd.Timestamp(dl.today_istanbul()) - pd.Timedelta(days=days)
+    dates = [d for d in df.index if pd.Timestamp(d).normalize() >= cutoff]
+    if not dates:
+        return []
+
+    code = symbol.upper().replace(".IS", "")
+    now_str = dl.now_istanbul().strftime("%Y-%m-%d %H:%M:%S")
+    out = []
+    for date in dates:
+        window = df.loc[:date]
+        # İndikatörlerin anlamlı olması için yeterli geçmiş şart
+        if len(window) < 60:
+            continue
+        try:
+            sig_map = _signals_df_to_dict(calculate_technical_signals(window))
+        except Exception:
+            continue
+        row = window.iloc[-1]
+        out.append({
+            "tarih": pd.Timestamp(date).date().isoformat(),
+            "hisse": code,
+            "kapanis": _num(row.get("Close")),
+            "acilis": _num(row.get("Open")),
+            "yuksek": _num(row.get("High")),
+            "dusuk": _num(row.get("Low")),
+            "ma_sinyal": sig_map.get("Hareketli Ortalamalar (MA)", {}).get("sinyal") or "",
+            "macd_sinyal": sig_map.get("MACD", {}).get("sinyal") or "",
+            "rsi": _extract_rsi_value(sig_map.get("RSI", {}).get("degerler", "")),
+            "bollinger_sinyal": sig_map.get("Bollinger Bantları", {}).get("sinyal") or "",
+            "stokastik": sig_map.get("Stokastik", {}).get("sinyal") or "",
+            "ichimoku": sig_map.get("Ichimoku", {}).get("sinyal") or "",
+            "genel_sinyal": _summarize_general(sig_map),
+            "kaydedilme_zamani": now_str,
+        })
+    return out
+
+
+def _num(v):
+    """Seri/None/NaN karışık gelen hücreyi güvenle float'a çevirir."""
+    try:
+        if isinstance(v, pd.Series):
+            v = v.iloc[0]
+        v = float(v)
+        return None if pd.isna(v) else round(v, 4)
+    except (TypeError, ValueError):
+        return None
+
+
+# Son 1 ayın otomatik doldurulması arka planda, süreç genelinde tek seferde çalışır.
+_backfill_lock = threading.Lock()
+_backfill_state = {"thread": None, "done_at": None, "result": None, "progress": ""}
+BACKFILL_DAYS = 30
+BACKFILL_INTERVAL = 3600          # aynı gün içinde en fazla saatte bir tekrar
+
+
+def backfill_status() -> dict:
+    """Arayüzün gösterdiği doldurma durumu."""
+    with _backfill_lock:
+        thread = _backfill_state["thread"]
+        return {
+            "running": bool(thread is not None and thread.is_alive()),
+            "progress": _backfill_state["progress"],
+            "result": _backfill_state["result"],
+            "done_at": _backfill_state["done_at"],
+        }
+
+
+def ensure_last_month(symbols: list[str], force: bool = False) -> bool:
+    """
+    Son 30 günün kayıtlarını arka planda tamamlar. Sayfa açıldığında çağrılır;
+    elle butona basmaya gerek kalmaz. Zaten çalışıyorsa ya da yakın zamanda
+    tamamlandıysa yeniden başlatmaz. Başlattıysa True döner.
+    """
+    if not symbols:
+        return False
+    now = time.monotonic()
+    with _backfill_lock:
+        thread = _backfill_state["thread"]
+        if thread is not None and thread.is_alive():
+            return False
+        done_at = _backfill_state["done_at"]
+        if not force and done_at is not None and now - done_at < BACKFILL_INTERVAL:
+            return False
+
+        def _worker():
+            inserted = skipped = failed = 0
+            for idx, sym in enumerate(symbols, 1):
+                with _backfill_lock:
+                    _backfill_state["progress"] = f"{sym} ({idx}/{len(symbols)})"
+                try:
+                    records = compute_records_for_history(sym, BACKFILL_DAYS)
+                    if records:
+                        ins, skp = dl.insert_records(records, overwrite=False)
+                        inserted += ins
+                        skipped += skp
+                    else:
+                        failed += 1
+                except Exception:
+                    failed += 1
+            with _backfill_lock:
+                _backfill_state["done_at"] = time.monotonic()
+                _backfill_state["progress"] = ""
+                _backfill_state["result"] = {
+                    "inserted": inserted, "skipped": skipped, "failed": failed,
+                    "days": BACKFILL_DAYS,
+                }
+
+        thread = threading.Thread(target=_worker, name="daily-backfill", daemon=True)
+        _backfill_state["thread"] = thread
+        _backfill_state["progress"] = "başlıyor…"
+        thread.start()
+        return True
 
 
 def run_daily_capture(symbols: list[str], overwrite: bool = False, progress_cb=None) -> dict:

@@ -11,11 +11,6 @@
 {% elif not tickers %}
   <div class="gf-flash err">Model için eğitilmiş hisse listesi okunamadı.</div>
 {% else %}
-  <div class="gf-source" style="margin:10px 0 16px;">
-    RandomForest yön modelleri (10/30/60/120/180 işlem günü) + geçmiş olasılık kalibrasyonu.
-    Model 2010–2026 arası veriyle eğitildi ve yalnızca aşağıdaki hisseleri kapsıyor.
-  </div>
-
   <form method="get" style="display:flex;gap:16px;align-items:flex-end;">
     <div style="flex:3;"><label>Hisse</label>
       <select name="hisse">
@@ -36,7 +31,7 @@
 
     <div class="gf-side-sub">Vadelere göre beklenti</div>
     <div class="gf-cards">
-      {% for f in data.forecasts %}{{ forecast_card_html(f) | safe }}{% endfor %}
+      {% for f in data.forecasts %}{{ forecast_card_html(f, data.ticker) | safe }}{% endfor %}
     </div>
 
     <div id="fc-chart" style="min-height:420px;margin-top:16px;"></div>
@@ -65,10 +60,6 @@
     <div class="gf-flash info">Bir hisse seçip <b>Tahmin üret</b> butonuna bas.</div>
   {% endif %}
 
-  <div class="gf-source" style="margin-top:18px;">
-    Bu tahminler geçmiş fiyat verisi ve teknik göstergelerden üretilen istatistiksel
-    beklentilerdir. AL/SAT kararı üretmez, yatırım tavsiyesi değildir.
-  </div>
 {% endif %}
 
 {% endblock %}

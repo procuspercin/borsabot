@@ -40,10 +40,10 @@
           <div class="gf-bubble user">{{ msg.content }}</div>
         {% else %}
           <div class="gf-bubble bot">
-            {% if msg.queries %}
+            {%- if msg.queries %}
             <div class="gf-bubble-search">🔎 Arandı: {{ msg.queries | join(' · ') }}</div>
-            {% endif %}
-            <div class="gf-bubble-text">{{ msg.content }}</div>
+            {%- endif %}
+            <div class="gf-bubble-text">{{ render_answer(msg.content) | safe }}</div>
             {% if msg.sources %}
             <details class="gf-bubble-src">
               <summary>{{ msg.sources|length }} kaynak</summary>

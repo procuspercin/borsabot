@@ -359,8 +359,10 @@ select[multiple] { background-image: none; padding-right: 16px; }
 }
 .gf-bubble.bot {
     background: var(--gf-surface-2); align-self: flex-start;
-    border-bottom-left-radius: 5px; white-space: pre-wrap;
+    border-bottom-left-radius: 5px;
 }
+/* pre-wrap yalnızca metin kutusunda: kapsayıcıda olunca şablonun kendi
+   girintileri ve satır sonları balonun içinde boşluk olarak çiziliyordu. */
 .gf-bubble-src { margin-top: 9px; }
 .gf-bubble-src > summary {
     cursor: pointer; font-size: .72rem; color: var(--gf-text-dim); list-style: none;
@@ -417,6 +419,13 @@ select[multiple] { background-image: none; padding-right: 16px; }
     padding-bottom: 6px; border-bottom: 1px solid var(--gf-border);
 }
 .gf-bubble-text { overflow-wrap: anywhere; }
+.gf-bubble-text p { margin: 0 0 8px; }
+.gf-bubble-text p:last-child { margin-bottom: 0; }
+.gf-bubble-text ul { margin: 0 0 8px; padding-left: 18px; }
+.gf-bubble-text li { margin-bottom: 4px; }
+.gf-bubble-text li:last-child { margin-bottom: 0; }
+.gf-bubble-text strong { font-weight: 600; color: var(--gf-text); }
+.gf-bubble-text em { color: var(--gf-text-dim); font-style: normal; }
 
 /* ================= Mobil ================= */
 @media (max-width: 720px) {

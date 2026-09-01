@@ -38,6 +38,7 @@ templates.env.globals.update(
     signal_badge=m.signal_badge,
     forecast_card_html=m._forecast_card_html,
     safe_link=m.safe_link,
+    render_answer=m.render_answer,
     MARKET_TABS=m.MARKET_TABS,
     SECTOR_INDICES=m.SECTOR_INDICES,
     TICKER_STRIP=m.TICKER_STRIP,

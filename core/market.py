@@ -839,6 +839,38 @@ BIST_ALIASES = {
 }
 
 
+def render_answer(text: str) -> str:
+    """
+    Asistan yanıtındaki basit markdown'ı HTML'e çevirir: kalın, madde işaretleri
+    ve paragraflar. Model çıktısı güvenilmez kabul edilip ÖNCE kaçırılır, sonra
+    yalnızca bu üç kalıp HTML'e dönüştürülür; başka etiket geçemez.
+    """
+    if not text:
+        return ""
+    out, items = [], []
+
+    def flush():
+        if items:
+            out.append("<ul>" + "".join(f"<li>{li}</li>" for li in items) + "</ul>")
+            items.clear()
+
+    for raw in text.split("\n"):
+        line = html_escape(raw.rstrip())
+        line = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", line)
+        line = re.sub(r"(?<![\*\w])\*(?!\s)([^*]+?)(?<!\s)\*(?![\*\w])", r"<em>\1</em>", line)
+
+        stripped = line.strip()
+        bullet = re.match(r"^(?:[-•]|\*)\s+(.*)$", stripped)
+        if bullet:
+            items.append(bullet.group(1).strip())
+            continue
+        flush()
+        if stripped:
+            out.append(f"<p>{stripped}</p>")
+    flush()
+    return "".join(out)
+
+
 def detect_symbols(text: str, exclude: str | None = None) -> list:
     """Kullanıcının sorusunda geçen hisseleri bulur (kod ya da şirket adı)."""
     t = (text or "").lower()

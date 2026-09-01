@@ -14,7 +14,8 @@ from datetime import date, datetime, timedelta
 import pandas as pd
 import plotly.io as pio
 from fastapi import FastAPI, Form, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
+                               RedirectResponse, StreamingResponse)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -336,6 +337,18 @@ def patterns_modal(request: Request, symbol: str, period: str = "1y"):
         "symbol": sym, "short": sym.replace(".IS", ""),
         "result": result, "period": period, "periods": ["6mo", "1y", "2y"],
     }, sid)
+
+
+@app.get("/p/formasyon-gorsel/{key}.png")
+def pattern_image(key: str):
+    """Tarama sırasında üretilen grafik görselini servis eder."""
+    if not key.isalnum():
+        return JSONResponse({"error": "geçersiz"}, status_code=400)
+    path = pat.IMAGE_DIR / f"{key}.png"
+    if not path.exists():
+        return JSONResponse({"error": "görsel bulunamadı"}, status_code=404)
+    return FileResponse(path, media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=600"})
 
 
 @app.post("/p/asistan/{symbol}/temizle", response_class=HTMLResponse)

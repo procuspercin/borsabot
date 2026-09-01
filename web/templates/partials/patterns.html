@@ -16,7 +16,7 @@
       <div class="gf-flash err">{{ result.error }}</div>
     {% else %}
       <div class="gf-pattern-wrap">
-        <img src="{{ result.image }}" alt="{{ short }} mum grafiği" class="gf-pattern-img">
+        <img src="/p/formasyon-gorsel/{{ result.image_key }}.png" alt="{{ short }} mum grafiği" class="gf-pattern-img">
         {% for d in result.detections %}
         <div class="gf-pattern-box"
              style="left:{{ d.box[0] / result.width * 100 }}%; top:{{ d.box[1] / result.height * 100 }}%;

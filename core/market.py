@@ -1040,7 +1040,15 @@ def _ask_vertex(system_prompt: str, history: list) -> tuple:
         # Google araması: model gerekli gördüğünde kendisi arar, kaynakları
         # groundingMetadata içinde döndürür. Ek servis/anahtar gerekmiyor.
         "tools": [{"googleSearch": {}}],
-        "generationConfig": {"temperature": 0.4, "maxOutputTokens": 1200},
+        "generationConfig": {
+            "temperature": 0.4,
+            "maxOutputTokens": 2000,
+            # gemini-2.5-flash içsel "düşünme" tokenları harcıyor ve bunlar
+            # maxOutputTokens bütçesinden düşülüyor: 1200'ün 1148'i düşünmeye
+            # gidip cevaba 48 token kalıyor ve yanıtlar cümle ortasında
+            # kesiliyordu (finishReason=MAX_TOKENS). Düşünme kapatıldı.
+            "thinkingConfig": {"thinkingBudget": 0},
+        },
     }
     try:
         r = requests.post(url, headers={"Authorization": f"Bearer {token}",
@@ -1062,6 +1070,8 @@ def _ask_vertex(system_prompt: str, history: list) -> tuple:
         text = "".join(p.get("text", "") for p in parts).strip()
         meta = candidate.get("groundingMetadata") or {}
         sources = _grounding_sources(candidate)
+        if candidate.get("finishReason") == "MAX_TOKENS" and text:
+            text += "\n\n*(yanıt uzunluk sınırına takıldı)*"
         # Modelin gerçekten hangi sorguları arattığı; arayüzde gösteriliyor.
         queries = [q for q in (meta.get("webSearchQueries") or []) if q][:4]
         return (text or None), (None if text else "Boş yanıt döndü."), {

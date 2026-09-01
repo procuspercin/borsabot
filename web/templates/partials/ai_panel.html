@@ -104,10 +104,12 @@ function aiPending(form, presetText) {
   const text = presetText || (area ? area.value.trim() : '');
   if (!text) return;
 
+  // DOM'dan SİLMİYORUZ, gizliyoruz: tıklanan hazır-soru düğmesi silinince
+  // htmx isteği başlatan elemanı kaybedip isteği iptal ediyordu.
   const hello = body.querySelector('.gf-ai-hello');
-  if (hello) hello.remove();
+  if (hello) hello.style.display = 'none';
   const chips = body.querySelector('.gf-ai-chips');
-  if (chips) chips.remove();
+  if (chips) chips.style.display = 'none';
 
   const bubble = document.createElement('div');
   bubble.className = 'gf-bubble user';

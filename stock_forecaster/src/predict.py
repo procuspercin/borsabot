@@ -64,7 +64,14 @@ def load_stock(ticker):
         index_col="Date",
     )
 
-    return df.sort_index()
+    df = df.sort_index()
+
+    # Yahoo, seans kapanmadan Close'u boş bir satır döndürebiliyor
+    # (Open/High/Low/Volume dolu, Close boş). Bu satır sonuncu olduğunda
+    # latest_close NaN oluyor ve bütün fiyat beklentileri hesaplanamıyor:
+    # yüzdeler geliyor ama fiyatlar arayüzde "-" görünüyor. Kapanışı
+    # olmayan satırları hiç işleme alma.
+    return df[df["Close"].notna()]
 
 
 def load_market():
@@ -79,7 +86,10 @@ def load_market():
         index_col="Date",
     )
 
-    return df.sort_index()
+    df = df.sort_index()
+
+    # Endeks verisinde de yarım satır gelebiliyor; aynı nedenle ayıkla.
+    return df[df["Close"].notna()]
 
 
 def load_calibration():

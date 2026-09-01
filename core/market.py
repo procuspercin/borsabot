@@ -932,11 +932,20 @@ def ask_gemini(history: list, context_text: str):
             if _gemini_usage["times"]:
                 _gemini_usage["times"].pop()
             _gemini_usage["count"] = max(0, _gemini_usage["count"] - 1)
+        if key.startswith("AQ."):
+            # Google, AI Studio'yu "AQ." önekli Authentication Key'lere geçirdi
+            # ama generativelanguage.googleapis.com bunları henüz kabul etmiyor
+            # (401 ACCESS_TOKEN_TYPE_UNSUPPORTED). Hesabın etkilenmişse AI
+            # Studio başka türde anahtar üretmiyor.
+            return None, (
+                "Gemini anahtarın \"AQ.\" önekli ve Google'ın metin API'si bu türü "
+                "henüz kabul etmiyor — bilinen ve Google tarafında açık bir sorun. "
+                "Çözüm: başka bir Google hesabından ya da Cloud Console > "
+                "Kimlik Bilgileri üzerinden anahtar oluştur, veya Vertex AI'ya geç."
+            )
         return None, (
-            "Gemini API anahtarı geçersiz. Kalıcı bir anahtar için "
-            "aistudio.google.com/apikey adresinden yeni anahtar oluşturup "
-            "sunucuda .streamlit/secrets.toml içine yaz. Geçerli anahtarlar "
-            "\"AIza\" ile başlar ve 39 karakterdir."
+            "Gemini API anahtarı reddedildi. Anahtarı ve Generative Language "
+            "API'nin projede etkin olduğunu kontrol et."
         )
 
     if r.status_code == 429:

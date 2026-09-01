@@ -1731,9 +1731,16 @@ def render_forecast():
 
     c_sym, c_run = st.columns([3, 1])
     with c_sym:
-        default = st.session_state.selected_symbol.replace(".IS", "")
-        idx = tickers.index(default) if default in tickers else tickers.index("THYAO") if "THYAO" in tickers else 0
-        ticker = st.selectbox("Hisse", tickers, index=idx, key="fc_symbol")
+        # Varsayılan yalnızca session_state'e yazılır; selectbox'a ayrıca index=
+        # vermek "created with a default value but also had its value set via
+        # the Session State API" uyarısını üretiyor (go_to_forecast fc_symbol'ü
+        # elle set ediyor).
+        if st.session_state.get("fc_symbol") not in tickers:
+            default = st.session_state.selected_symbol.replace(".IS", "")
+            if default not in tickers:
+                default = "THYAO" if "THYAO" in tickers else tickers[0]
+            st.session_state.fc_symbol = default
+        ticker = st.selectbox("Hisse", tickers, key="fc_symbol")
     with c_run:
         st.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
         run = st.button("Tahmin üret", type="primary", use_container_width=True, key="fc_run")

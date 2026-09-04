@@ -4,8 +4,8 @@
     <h3 style="margin-top:0;">Teknik özet</h3>
 
     {% set q = ctx.quote %}
-    <div style="font-size:1.2rem;font-weight:500;">{{ symbol.replace('.IS','') }}
-      <span class="gf-source" style="margin-left:8px;">BIST · {{ symbol }}</span></div>
+    <div style="font-size:1.2rem;font-weight:500;">{{ symbol_code(symbol) }}
+      <span class="gf-source" style="margin-left:8px;">{{ market_label(symbol) }} · {{ symbol }}</span></div>
     <div style="display:flex;align-items:baseline;gap:12px;margin:6px 0 4px;">
       <span style="font-size:1.8rem;">{{ fmt_price(q.price) }}</span>
       <span class="{{ trend_class(q.pct) }}">{{ '+' if q.pct >= 0 else '' }}{{ fmt_price(q.change) }}
@@ -31,7 +31,9 @@
       <a class="btn primary" href="/hisse/{{ symbol }}">Detaylı grafiği aç</a>
       <button hx-post="/p/izleme/{{ symbol }}" hx-target="#side-lists" hx-swap="outerHTML"
               onclick="closeModal()">{{ '★ İzlemeden çıkar' if in_watchlist else '☆ İzlemeye ekle' }}</button>
-      <a class="btn" href="/ml-tahmin?hisse={{ symbol.replace('.IS','') }}">ML tahmini</a>
+      {% if not is_us_symbol(symbol) %}
+      <a class="btn" href="/ml-tahmin?hisse={{ symbol_code(symbol) }}">ML tahmini</a>
+      {% endif %}
     </div>
   </div>
 </div>

@@ -43,6 +43,11 @@ templates.env.globals.update(
     SECTOR_INDICES=m.SECTOR_INDICES,
     TICKER_STRIP=m.TICKER_STRIP,
     BIST100_SYMBOLS=m.BIST100_SYMBOLS,
+    US_SYMBOLS=m.US_SYMBOLS,
+    US_SECTORS=m.US_SECTORS,
+    symbol_code=m.symbol_code,
+    market_label=m.market_label,
+    is_us_symbol=m.is_us_symbol,
     HORIZON_LABELS=m.HORIZON_LABELS,
 )
 
@@ -83,12 +88,8 @@ def _home_quotes(state: dict) -> dict:
 
 
 def _normalize(symbol: str) -> str:
-    symbol = (symbol or "").strip().upper()
-    if not symbol:
-        return ""
-    if "." in symbol or "=" in symbol or "-" in symbol:
-        return symbol
-    return f"{symbol}.IS"
+    """Soneksiz kodu doğru piyasaya bağlar: AAPL -> AAPL, THYAO -> THYAO.IS."""
+    return m.normalize_symbol(symbol)
 
 
 # --------------------------------------------------------------------------- #
@@ -101,11 +102,15 @@ def home(request: Request):
     quotes = _home_quotes(state)
     movers = m.get_market_movers(quotes)
     n_side = max(1, min(6, len(movers) // 2))
+    us_movers = m.get_us_movers(quotes)
+    n_us = max(1, min(6, len(us_movers) // 2))
     return _render(request, "home.html", {
         "quotes": quotes,
         "state": state,
         "gainers": movers.head(n_side).to_dict("records"),
         "losers": movers.tail(n_side).iloc[::-1].to_dict("records"),
+        "us_gainers": us_movers.head(n_us).to_dict("records"),
+        "us_losers": us_movers.tail(n_us).iloc[::-1].to_dict("records"),
         "news": m.get_news()[:6],
         "ai": _ai_context(state, state["watchlist"][0] if state["watchlist"] else "THYAO.IS"),
     }, sid)
@@ -176,6 +181,9 @@ def modal_close():
 def _futures_map(symbol: str) -> dict:
     now = datetime.now()
     out = {"Spot (Hisse)": symbol}
+    # VİOP vade sembolleri yalnızca BIST hisseleri için var.
+    if not symbol.endswith(".IS"):
+        return out
     for i in range(3):
         month, year = now.month + i, now.year
         if month > 12:
@@ -265,7 +273,7 @@ def download_csv(symbol: str, period: str = "1y", interval: str = "1d"):
     df.to_csv(buf)
     return StreamingResponse(
         iter([buf.getvalue()]), media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{sym.replace(".IS", "")}_{period}.csv"'},
+        headers={"Content-Disposition": f'attachment; filename="{m.symbol_code(sym)}_{period}.csv"'},
     )
 
 
@@ -282,12 +290,13 @@ QUICK_QUESTIONS = [
 
 
 def _ai_context(state: dict, symbol: str) -> dict:
-    short = symbol.replace(".IS", "")
+    short = m.symbol_code(symbol)
     return {
         "symbol": symbol,
         "short": short,
         "history": sess.chat(state, symbol),
         "quick": [q.format(s=short) for q in QUICK_QUESTIONS],
+        "market": m.market_label(symbol),
         "provider": m.llm_provider(),
         "usage": m.gemini_usage(),
     }
@@ -336,7 +345,7 @@ def patterns_modal(request: Request, symbol: str, period: str = "1y"):
         "error": "Formasyon modeli sunucuda kurulu değil.",
     }
     return _render(request, "partials/patterns.html", {
-        "symbol": sym, "short": sym.replace(".IS", ""),
+        "symbol": sym, "short": m.symbol_code(sym),
         "result": result, "period": period, "periods": ["6mo", "1y", "2y"],
     }, sid)
 

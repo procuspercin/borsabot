@@ -22,30 +22,38 @@
       {% include "partials/market_cards.html" %}
     {% endwith %}
 
-    <hr class="gf-divider">
-    <h4>Piyasa özeti</h4>
+    {# Yükselen/düşen listesi iki piyasa için de aynı; makro ile tekrar etmiyoruz. #}
+    {% macro movers(title, market, up, down) %}
+    <h4>{{ title }}</h4>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
       <div>
         <div class="gf-side-sub">En çok yükselenler</div>
-        {% for r in gainers %}
+        {% for r in up %}
         <a href="/hisse/{{ r['Sembol'] }}" style="text-decoration:none;">
           <div class="gf-row"><div class="gf-row-left"><span class="gf-row-sym">{{ r['Sembol'] }}</span>
-          <span class="gf-row-name">BIST</span></div><div class="gf-row-right">
+          <span class="gf-row-name">{{ market }}</span></div><div class="gf-row-right">
           <span class="gf-row-price">{{ fmt_price(r['Fiyat']) }}</span>
           <span class="gf-row-chg gf-up">+{{ '%.2f'|format(r['Değişim %']) }}%</span></div></div></a>
         {% endfor %}
       </div>
       <div>
         <div class="gf-side-sub">En çok düşenler</div>
-        {% for r in losers %}
+        {% for r in down %}
         <a href="/hisse/{{ r['Sembol'] }}" style="text-decoration:none;">
           <div class="gf-row"><div class="gf-row-left"><span class="gf-row-sym">{{ r['Sembol'] }}</span>
-          <span class="gf-row-name">BIST</span></div><div class="gf-row-right">
+          <span class="gf-row-name">{{ market }}</span></div><div class="gf-row-right">
           <span class="gf-row-price">{{ fmt_price(r['Fiyat']) }}</span>
           <span class="gf-row-chg gf-down">{{ '%.2f'|format(r['Değişim %']) }}%</span></div></div></a>
         {% endfor %}
       </div>
     </div>
+    {% endmacro %}
+
+    <hr class="gf-divider">
+    {{ movers('Piyasa özeti · BIST', 'BIST', gainers, losers) }}
+
+    <hr class="gf-divider">
+    {{ movers('Piyasa özeti · ABD', 'ABD', us_gainers, us_losers) }}
 
     <hr class="gf-divider">
     <div style="display:flex;align-items:baseline;gap:12px;">

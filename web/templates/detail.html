@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ symbol.replace('.IS','') }} · BorsaBot Finans{% endblock %}
+{% block title %}{{ symbol_code(symbol) }} · BorsaBot Finans{% endblock %}
 {% block head_scripts %}
 {# plotly.py 6 grafiği ikili (dtype/bdata) dizilerle serileştiriyor; bunu
    plotly.js 3.x çözüyor, 2.x çözemeyip sayıları yanlış okuyordu.
@@ -12,8 +12,8 @@
   <a class="btn" href="/">← Geri</a>
   <div style="flex:1;">
     {% if quote %}
-    <div style="font-size:1.5rem;font-weight:500;">{{ symbol.replace('.IS','') }}
-      <span class="gf-source" style="margin-left:10px;">BIST · {{ symbol }}</span></div>
+    <div style="font-size:1.5rem;font-weight:500;">{{ symbol_code(symbol) }}
+      <span class="gf-source" style="margin-left:10px;">{{ market_label(symbol) }} · {{ symbol }}</span></div>
     <div style="display:flex;align-items:baseline;gap:12px;margin-top:6px;">
       <span style="font-size:2rem;font-weight:400;">{{ fmt_price(quote.price) }}</span>
       <span class="{{ trend_class(quote.pct) }}" style="font-size:1rem;font-weight:500;">
@@ -53,6 +53,7 @@
   <input type="hidden" name="vade" value="{{ vade }}">
 </form>
 
+{% if futures | length > 1 %}
 <form method="get" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
   <input type="hidden" name="period" value="{{ period }}">
   <input type="hidden" name="interval" value="{{ interval }}">
@@ -62,6 +63,7 @@
   <button name="vade" value="{{ f }}" class="{{ 'primary' if f == vade }}">{{ f }}</button>
   {% endfor %}
 </form>
+{% endif %}
 
 {% if vade != 'Spot (Hisse)' %}
 <div class="gf-flash info">Seçilen vade sembolü: <b>{{ target }}</b>

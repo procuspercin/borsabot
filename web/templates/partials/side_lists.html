@@ -18,9 +18,16 @@
   <form hx-post="/p/izleme-ekle" hx-target="#side-lists" hx-swap="outerHTML" style="margin:10px 0 18px;">
     <select name="symbol" onchange="this.form.requestSubmit()">
       <option value="">+ İzleme listesine ekle</option>
-      {% for s in BIST100_SYMBOLS %}
-        {% if s not in state.watchlist %}<option value="{{ s }}">{{ s.replace('.IS','') }}</option>{% endif %}
-      {% endfor %}
+      <optgroup label="BIST">
+        {% for s in BIST100_SYMBOLS %}
+          {% if s not in state.watchlist %}<option value="{{ s }}">{{ s.replace('.IS','') }}</option>{% endif %}
+        {% endfor %}
+      </optgroup>
+      <optgroup label="ABD">
+        {% for s in US_SYMBOLS %}
+          {% if s not in state.watchlist %}<option value="{{ s }}">{{ s }}</option>{% endif %}
+        {% endfor %}
+      </optgroup>
     </select>
   </form>
 
@@ -32,7 +39,9 @@
   {% endfor %}
   {% endif %}
 
-  <div class="gf-side-sub">Hisse senedi sektörleri</div>
-  {% set rows = [] %}
+  <div class="gf-side-sub">BIST sektörleri</div>
   {% for tkr, name in SECTOR_INDICES %}{% if tkr in quotes %}{{ quote_row_html(tkr.replace('.IS',''), name, quotes[tkr]) | safe }}{% endif %}{% endfor %}
+
+  <div class="gf-side-sub">ABD sektörleri</div>
+  {% for tkr, name in US_SECTORS %}{% if tkr in quotes %}{{ quote_row_html(tkr, name, quotes[tkr]) | safe }}{% endif %}{% endfor %}
 </aside>

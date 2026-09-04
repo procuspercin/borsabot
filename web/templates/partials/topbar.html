@@ -3,9 +3,10 @@
 
   <form action="/arama" method="get" style="flex:1;max-width:720px;">
     <input type="search" name="sembol" list="tum-semboller" autocomplete="off"
-           placeholder="Hisse senedi, endeks veya sembol arayın">
+           placeholder="BIST veya ABD hissesi, endeks ya da sembol arayın">
     <datalist id="tum-semboller">
-      {% for s in BIST100_SYMBOLS %}<option value="{{ s.replace('.IS', '') }}">{% endfor %}
+      {% for s in BIST100_SYMBOLS %}<option value="{{ s.replace('.IS', '') }}" label="BIST">{% endfor %}
+      {% for s in US_SYMBOLS %}<option value="{{ s }}" label="ABD">{% endfor %}
     </datalist>
   </form>
 

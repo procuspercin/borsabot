@@ -120,6 +120,118 @@ BIST100_SYMBOLS = [
 ]
 
 
+# --------------------------------------------------------------------------- #
+# ABD piyasası
+# --------------------------------------------------------------------------- #
+#
+# Yahoo'da ABD hisseleri sonek almaz (AAPL), BIST hisseleri ".IS" alır
+# (THYAO.IS). Uygulamanın her yerinde sembol normalizasyonu bu listeye bakarak
+# yapılır: kullanıcı "AAPL" yazdığında ".IS" eklenmemeli.
+US_SYMBOLS = [
+    "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "BRK-B", "AVGO", "LLY",
+    "JPM", "V", "UNH", "XOM", "MA", "COST", "PG", "JNJ", "HD", "ABBV",
+    "WMT", "NFLX", "MRK", "KO", "PEP", "BAC", "AMD", "ADBE", "CRM", "CVX",
+    "TMO", "ACN", "LIN", "MCD", "CSCO", "ABT", "ORCL", "WFC", "DIS", "INTC",
+    "INTU", "IBM", "QCOM", "TXN", "CAT", "AMGN", "GE", "VZ", "NOW", "PFE",
+    "NKE", "UNP", "CMCSA", "PM", "AMAT", "SPGI", "GS", "MS", "RTX", "HON",
+    "UBER", "BKNG", "LOW", "T", "BLK", "NEE", "ELV", "COP", "PLD", "SBUX",
+    "MDT", "BA", "DE", "LMT", "ADP", "MU", "MDLZ", "TJX", "GILD", "CB",
+    "SCHW", "ADI", "VRTX", "C", "SO", "PYPL", "MMM", "ZTS", "PANW", "SNOW",
+    "SHOP", "COIN", "PLTR", "ABNB", "MRNA", "F", "GM", "DAL", "RIVN", "LCID",
+    "ROKU", "SPOT", "ZM", "CRWD", "NET", "DDOG",
+]
+
+
+_US_SET = frozenset(US_SYMBOLS)
+
+
+# ABD endeksleri ve vadelileri; ".IS" eklenmemesi gereken diğer semboller
+# zaten "^", "=" ya da "-" içerdiği için normalize tarafından ayrılıyor.
+US_SECTORS = [
+    ("XLK", "Teknoloji"),
+    ("XLF", "Finans"),
+    ("XLE", "Enerji"),
+    ("XLV", "Sağlık"),
+    ("XLY", "Tüketim"),
+    ("XLI", "Sanayi"),
+]
+
+
+_US_SECTOR_SET = frozenset(t for t, _ in US_SECTORS)
+
+
+US_ALIASES = {
+    "apple": "AAPL", "microsoft": "MSFT", "nvidia": "NVDA", "google": "GOOGL",
+    "alphabet": "GOOGL", "amazon": "AMZN", "meta": "META", "facebook": "META",
+    "tesla": "TSLA", "netflix": "NFLX", "coca cola": "KO", "coca-cola": "KO",
+    "pepsi": "PEP", "disney": "DIS", "intel": "INTC", "boeing": "BA",
+    "nike": "NKE", "starbucks": "SBUX", "mcdonald's": "MCD", "mcdonalds": "MCD",
+    "visa": "V", "mastercard": "MA", "paypal": "PYPL", "ford": "F",
+    "general motors": "GM", "palantir": "PLTR", "coinbase": "COIN",
+    "airbnb": "ABNB", "spotify": "SPOT", "oracle": "ORCL", "salesforce": "CRM",
+    "adobe": "ADBE", "qualcomm": "QCOM", "broadcom": "AVGO", "micron": "MU",
+    "cisco": "CSCO", "walmart": "WMT", "pfizer": "PFE", "moderna": "MRNA",
+    "exxon": "XOM", "chevron": "CVX", "jpmorgan": "JPM", "goldman": "GS",
+    "berkshire": "BRK-B", "eli lilly": "LLY", "johnson": "JNJ",
+    "s&p 500": "^GSPC", "sp500": "^GSPC", "nasdaq": "^IXIC", "dow jones": "^DJI",
+}
+
+
+# Türkçe metinde sık geçtiği için sohbette kod olarak aranmayan semboller
+# ("net", "spot", "dal" gündelik kelimeler). Şirket adıyla ya da doğrudan
+# arama kutusuyla yine erişilebiliyorlar.
+_US_CODE_SKIP = frozenset({"NET", "SPOT", "DAL", "CAT", "LOW", "ALL"})
+
+
+def is_us_symbol(symbol: str) -> bool:
+    """Sembol ABD piyasasına mı ait? (hisse, sektör ETF'i ya da ^ ile başlayan endeks)"""
+    s = (symbol or "").strip().upper()
+    return s in _US_SET or s in _US_SECTOR_SET or s.startswith("^")
+
+
+def normalize_symbol(symbol: str) -> str:
+    """
+    Kullanıcıdan gelen sembolü Yahoo formatına çevirir.
+    Soneki olmayan kod ABD listesinde ise olduğu gibi kalır (AAPL),
+    değilse BIST kabul edilip ".IS" eklenir (THYAO.IS).
+    """
+    s = (symbol or "").strip().upper()
+    if not s:
+        return ""
+    if "." in s or "=" in s or "-" in s or s.startswith("^"):
+        return s
+    if s in _US_SET or s in _US_SECTOR_SET:
+        return s
+    return f"{s}.IS"
+
+
+def symbol_code(symbol: str) -> str:
+    """Gösterim için kısa kod: THYAO.IS -> THYAO, AAPL -> AAPL."""
+    return (symbol or "").upper().replace(".IS", "").lstrip("^")
+
+
+def market_label(symbol: str) -> str:
+    """Sembolün ait olduğu piyasanın arayüzde gösterilen adı."""
+    s = (symbol or "").strip().upper()
+    if s.endswith(".IS"):
+        return "BIST"
+    if is_us_symbol(s):
+        return "ABD"
+    if s.endswith("=X"):
+        return "Döviz"
+    if s.endswith("=F"):
+        return "Vadeli"
+    if s.endswith("-USD"):
+        return "Kripto"
+    return "Piyasa"
+
+
+def currency_of(symbol: str) -> str:
+    """Fiyatların hangi para biriminde olduğunu söyler (metinlerde kullanılır)."""
+    s = (symbol or "").strip().upper()
+    return "TL" if s.endswith(".IS") else "USD"
+
+
 MARKET_TABS = {
     "BIST": [
         ("XU100.IS", "BIST 100"),
@@ -128,6 +240,14 @@ MARKET_TABS = {
         ("XUSIN.IS", "Sınai"),
         ("XUTEK.IS", "Teknoloji"),
         ("XUMAL.IS", "Mali"),
+    ],
+    "ABD": [
+        ("AAPL", "Apple"),
+        ("MSFT", "Microsoft"),
+        ("NVDA", "Nvidia"),
+        ("AMZN", "Amazon"),
+        ("GOOGL", "Alphabet"),
+        ("TSLA", "Tesla"),
     ],
     "Döviz": [
         ("USDTRY=X", "Dolar/TL"),
@@ -191,6 +311,7 @@ TICKER_STRIP = [
     ("GC=F", "Ons Altın"),
     ("BZ=F", "Brent"),
     ("BTC-USD", "Bitcoin"),
+    ("^GSPC", "S&P 500"),
 ]
 
 
@@ -333,6 +454,8 @@ def home_ticker_universe(extra: tuple = ()) -> tuple:
     for items in MARKET_TABS.values():
         syms += [t for t, _ in items]
     syms += [s for s in BIST100_SYMBOLS if not s.startswith("XU")][:MOVERS_LIMIT]
+    syms += [t for t, _ in US_SECTORS]
+    syms += US_SYMBOLS[:MOVERS_LIMIT]
     syms += list(extra)
     return tuple(dict.fromkeys(syms))
 
@@ -349,9 +472,8 @@ def prefetch_home_quotes(extra: tuple = ()) -> dict:
 MOVERS_LIMIT = 40
 
 
-def get_market_movers(quotes: dict | None = None, limit: int = MOVERS_LIMIT) -> pd.DataFrame:
-    """En çok yükselen / düşen hisseler."""
-    tickers = tuple(s for s in BIST100_SYMBOLS if not s.startswith("XU"))[:limit]
+def _movers_frame(tickers: tuple, quotes: dict | None) -> pd.DataFrame:
+    """Verilen semboller için değişime göre sıralanmış tablo üretir."""
     if quotes is None:
         quotes = get_quotes(tickers)
     rows = []
@@ -359,10 +481,21 @@ def get_market_movers(quotes: dict | None = None, limit: int = MOVERS_LIMIT) -> 
         q = quotes.get(t)
         if not q:
             continue
-        rows.append({"Sembol": t.replace(".IS", ""), "Fiyat": q["price"], "Değişim %": q["pct"]})
+        rows.append({"Sembol": symbol_code(t), "Fiyat": q["price"], "Değişim %": q["pct"]})
     if not rows:
         return pd.DataFrame(columns=["Sembol", "Fiyat", "Değişim %"])
     return pd.DataFrame(rows).sort_values("Değişim %", ascending=False).reset_index(drop=True)
+
+
+def get_market_movers(quotes: dict | None = None, limit: int = MOVERS_LIMIT) -> pd.DataFrame:
+    """BIST'te en çok yükselen / düşen hisseler."""
+    tickers = tuple(s for s in BIST100_SYMBOLS if not s.startswith("XU"))[:limit]
+    return _movers_frame(tickers, quotes)
+
+
+def get_us_movers(quotes: dict | None = None, limit: int = MOVERS_LIMIT) -> pd.DataFrame:
+    """ABD piyasasında en çok yükselen / düşen hisseler."""
+    return _movers_frame(tuple(US_SYMBOLS[:limit]), quotes)
 
 
 # Haber kaynakları. Bloomberg HT'nin RSS'i zaman zaman günlerce güncellenmiyor,
@@ -738,9 +871,10 @@ def get_analysis_context(symbol: str):
     except Exception:
         hi52 = lo52 = vol_last = vol_avg = 0.0
 
+    cur = currency_of(symbol)
     lines = [
-        f"Sembol: {symbol}",
-        f"Son kapanış: {last:.2f} TL (günlük değişim: {pct:+.2f}%)",
+        f"Sembol: {symbol} ({market_label(symbol)} piyasası)",
+        f"Son kapanış: {last:.2f} {cur} (günlük değişim: {pct:+.2f}%)",
         f"Son 1 yıl aralığı: {lo52:.2f} - {hi52:.2f}",
         f"Son hacim: {vol_last:,.0f} / 20 günlük ortalama hacim: {vol_avg:,.0f}",
         f"Uygulamanın genel teknik görünümü: {genel}",
@@ -752,7 +886,7 @@ def get_analysis_context(symbol: str):
     lv = price_levels(df)
     if lv:
         lines.append("")
-        lines.append("Teknik fiyat seviyeleri (TL):")
+        lines.append(f"Teknik fiyat seviyeleri ({cur}):")
         for key, label in (
             ("ma20", "MA20"), ("ma50", "MA50"), ("ma200", "MA200"),
             ("bb_ust", "Bollinger üst"), ("bb_orta", "Bollinger orta"), ("bb_alt", "Bollinger alt"),
@@ -767,7 +901,7 @@ def get_analysis_context(symbol: str):
                 lines.append(f"- {label}: {lv[key]:.2f}")
         if "atr" in lv:
             lines.append(
-                f"- ATR(14) günlük tipik hareket: {lv['atr']:.2f} TL (%{lv['atr_yuzde']:.2f})"
+                f"- ATR(14) günlük tipik hareket: {lv['atr']:.2f} {cur} (%{lv['atr_yuzde']:.2f})"
             )
         if lv.get("destekler"):
             lines.append("- Fiyatın altındaki en yakın destekler: " + ", ".join(
@@ -811,11 +945,13 @@ KAPSAM — bu kural diğer her şeyin önünde gelir:
 
 Kurallar:
 - Fiyat, seviye ve indikatör YORUMLARINDA sadece sana verilen verileri kullan; sayı uydurma.
-- Şirketin kendisiyle ilgili sorularda (yönetim, ortaklık yapısı, KAP bildirimleri, bilanço,
+- Şirketin kendisiyle ilgili sorularda (yönetim, ortaklık yapısı, KAP/SEC bildirimleri, bilanço,
   haberler, sektör gelişmeleri) GOOGLE ARAMASINI KULLAN. Bulduğunu kaynağıyla birlikte aktar,
   haberin ne olduğunu ve hisseye olası etkisini bir cümleyle yaz. Bulamazsan "bulamadım" de.
 - Sana "görüntü tanıma modeliyle bulunan formasyonlar" verilmişse, bunları fiyat verisiyle
   birlikte yorumla ve güven oranını belirt; modelin yanılabileceğini hatırlat.
+- Sana verilen bağlamda hissenin piyasası ve para birimi yazıyor: BIST hisselerinde seviyeleri
+  TL, ABD hisselerinde dolar olarak konuş. Karıştırma, kur çevirisi yapma.
 - Aşağıda birden fazla hissenin verisi olabilir; kullanıcı hangisini sorduysa onun bölümünü kullan,
   iki hisse sorulduysa ikisini karşılaştır.
 - SOMUT OL. "Destek var" deme; "384,00 (Fib %23.6) ilk destek" de. Her seviyeyi rakamla ver ve
@@ -890,24 +1026,30 @@ def render_answer(text: str) -> str:
 
 
 def detect_symbols(text: str, exclude: str | None = None) -> list:
-    """Kullanıcının sorusunda geçen hisseleri bulur (kod ya da şirket adı)."""
+    """
+    Kullanıcının sorusunda geçen hisseleri bulur (kod ya da şirket adı).
+    Hem BIST hem ABD hisselerini tanır; dönen semboller Yahoo formatındadır.
+    """
     t = (text or "").lower()
     found = []
 
-    for name, code in BIST_ALIASES.items():
+    for name, code in list(BIST_ALIASES.items()) + list(US_ALIASES.items()):
         # "sahibim" içindeki "bim" gibi yanlış eşleşmeleri önlemek için kelime sınırı
         if re.search(rf"\b{re.escape(name)}\b", t):
             found.append(code)
 
     known = {s.replace(".IS", "") for s in BIST100_SYMBOLS}
     known.update(BIST_ALIASES.values())
+    # ABD kodları kısa olduğu için Türkçe metinde yanlış eşleşiyor: en az üç
+    # harfliler ve gündelik kelimeyle çakışmayanlar aranır.
+    known.update(c for c in US_SYMBOLS if len(c) >= 3 and c not in _US_CODE_SKIP)
     for code in known:
-        if re.search(rf"\b{code.lower()}\b", t):
+        if re.search(rf"\b{re.escape(code.lower())}\b", t):
             found.append(code)
 
     out = []
     for code in found:
-        sym = f"{code}.IS"
+        sym = normalize_symbol(code)
         if sym == exclude or sym in out:
             continue
         out.append(sym)
@@ -1680,7 +1822,7 @@ def compute_daily_record(symbol: str) -> dict | None:
     Verilen hisse için site içi hesaplamaları kullanarak bir günlük kayıt dict'i üretir.
     DB'ye yazılabilir formatta (DB kolon adlarıyla) döner.
     """
-    yf_symbol = symbol if symbol.endswith('.IS') else f"{symbol}.IS"
+    yf_symbol = normalize_symbol(symbol)
     df = get_stock_data(yf_symbol, "1y", "1d")
     if df is None or df.empty:
         return None
@@ -1709,7 +1851,7 @@ def compute_daily_record(symbol: str) -> dict | None:
 
     record = {
         'tarih': tarih_iso,
-        'hisse': symbol.upper().replace('.IS', ''),
+        'hisse': symbol_code(symbol),
         'kapanis': _f(last.get('Close')),
         'acilis': _f(last.get('Open')),
         'yuksek': _f(last.get('High')),
@@ -1782,7 +1924,7 @@ def compute_records_for_history(symbol: str, days: int = 30) -> list[dict]:
     her işlem günü, o gün bilinen bilgiyle değerlendirilir — sonraki günlerin
     verisi sinyallere sızmaz.
     """
-    yf_symbol = symbol if symbol.endswith(".IS") else f"{symbol}.IS"
+    yf_symbol = normalize_symbol(symbol)
     df = get_stock_data(yf_symbol, "2y", "1d")
     if df is None or df.empty:
         return []
@@ -1792,7 +1934,7 @@ def compute_records_for_history(symbol: str, days: int = 30) -> list[dict]:
     if not dates:
         return []
 
-    code = symbol.upper().replace(".IS", "")
+    code = symbol_code(symbol)
     now_str = dl.now_istanbul().strftime("%Y-%m-%d %H:%M:%S")
     out = []
     for date in dates:
